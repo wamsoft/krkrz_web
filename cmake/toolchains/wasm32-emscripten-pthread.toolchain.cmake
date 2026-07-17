@@ -12,6 +12,10 @@ endif()
 
 include("$ENV{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")
 
-string(APPEND CMAKE_C_FLAGS_INIT " -pthread")
-string(APPEND CMAKE_CXX_FLAGS_INIT " -pthread")
-string(APPEND CMAKE_EXE_LINKER_FLAGS_INIT " -pthread")
+# -fwasm-exceptions: Emscripten デフォルトは C++ 例外無効 (throw = abort) だが、
+# TJS はスクリプトエラーを例外で処理するため必須。wasm ネイティブ例外を
+# 全体 (アプリ + vcpkg 依存) で有効化し、setjmp/longjmp (libpng 等) の
+# SjLj 方式も wasm 側に揃える。
+string(APPEND CMAKE_C_FLAGS_INIT " -pthread -fwasm-exceptions")
+string(APPEND CMAKE_CXX_FLAGS_INIT " -pthread -fwasm-exceptions")
+string(APPEND CMAKE_EXE_LINKER_FLAGS_INIT " -pthread -fwasm-exceptions")

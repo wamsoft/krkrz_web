@@ -54,6 +54,24 @@ make run        # build + web/serve.py (COOP/COEP ヘッダ付き) で http://lo
   FS.syncfs(false) フラッシュは未実装 (Phase 3 TODO)** — 現状リロードで消える。
   注入点は Application::CommitSavedata。
 
+## devtools REPL / 自動テスト駆動
+
+ブラウザの開発者ツールコンソールがそのまま TJS REPL になる:
+`tjs('System.versionString')` のように任意の TJS 式を評価できる
+(pre.js の `tjs()` → `Module.ccall('krkrz_repl_eval')` → core 側
+`common/utils/ReplWasmBridge.cpp`。MASTER ビルドには入らない)。
+戻りは pretty-print 済み文字列、エラーは console.error に出る。
+
+Claude からの自動駆動は CDP 経由: scratchpad の `cdp_eval.py` で
+`Runtime.evaluate("tjs('...')")` を実行すれば走行中の wasm エンジンを
+TJS で操作・検証できる (デスクトップ版の krkrz-repl skill の wasm 版に相当)。
+スクリーンショットは `cdp_shot.py`。`--dump-dom` はメインスレッドブロックと
+相性が悪いので使わない。
+
+**注意: `-fwasm-exceptions` は必須** (toolchain ラッパ + CMakeLists 両方で付与)。
+Emscripten デフォルトは C++ 例外無効 (throw=abort) で、TJS はスクリプト
+エラーを例外で処理するため、外すとあらゆる TJS エラーでエンジンごと落ちる。
+
 ## 案件テンプレートとしての使い方
 
 案件では `KRKRZ_WEB_DATA_DIR` を案件データに向け、`TVP_PLUGINS_STATIC` に

@@ -126,10 +126,12 @@ KRKRZ_VARIANT_OPTION=_WEB
 # wasm ビルド設定
 # ----------------------------------------------------
 
-# スレッド (SharedArrayBuffer)。依存ライブラリ側は overlay triplet
-# wasm32-emscripten-pthread が同じフラグでビルドしている
-add_compile_options(-pthread)
-add_link_options(-pthread)
+# スレッド (SharedArrayBuffer) + wasm 例外。依存ライブラリ側は
+# cmake/toolchains/ のラッパ toolchain が同じフラグでビルドしている。
+# -fwasm-exceptions は必須: Emscripten デフォルトは C++ 例外無効 (throw=abort)
+# だが、TJS はスクリプトエラーを例外で処理する
+add_compile_options(-pthread -fwasm-exceptions)
+add_link_options(-pthread -fwasm-exceptions)
 
 # 出力は .html (+ .js/.wasm/.data)。emcc 標準シェルでそのまま起動確認できる
 set(CMAKE_EXECUTABLE_SUFFIX ".html")
@@ -170,6 +172,8 @@ target_link_options(krkrz PRIVATE
     -sFULL_ES3
     # セーブデータ永続化 (IDBFS)
     -lidbfs.js
+    # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)
+    -sEXPORTED_RUNTIME_METHODS=ccall
     # 起動引数・IDBFS マウントは pre.js で設定
     "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
     # ゲームデータを /data に preload

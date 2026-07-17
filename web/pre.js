@@ -33,6 +33,27 @@ if (typeof window !== 'undefined') {
     }
 }
 
+// devtools コンソール用 TJS REPL。コンソールから
+//   tjs('System.versionString')
+//   tjs('Debug.message("hello")')
+// のように任意の TJS 式を評価できる (engine 側 krkrz_repl_eval ブリッジ、
+// MASTER ビルドでは含まれない)。戻り値は pretty-print 済み文字列。
+if (typeof window !== 'undefined') {
+    window.tjs = function (line) {
+        if (!Module['ccall']) {
+            console.error('krkrz: runtime not ready');
+            return;
+        }
+        var json = Module['ccall']('krkrz_repl_eval', 'string', ['string'], [String(line)]);
+        var r = JSON.parse(json);
+        if (r.ok) {
+            console.log(r.result);
+            return r.result;
+        }
+        console.error(r.error);
+    };
+}
+
 // -drawthread=1: wasm では描画スレッドプールを増やしても pthread プールを
 // 圧迫するだけで益が薄いので 1 に固定 (最後のタスクはメインスレッド実行)
 Module['arguments'] = ['-drawdevice=sdl', '-drawthread=1', '/data'];
