@@ -1,0 +1,23 @@
+{
+  "name": "krkrz-web",
+  "version": "1.0.0",
+  "dependencies": [
+    "glm",
+    "libpng",
+    "oniguruma",
+    "opus",
+    "picojson",
+    "libjpeg-turbo",
+    "zlib",
+    "miniaudio",
+    "plog",
+    {
+      "name": "freetype",
+      "features": [
+        "zlib",
+        "png"
+      ]
+    }
+  ],
+  "builtin-baseline": "ceaa2404d370c7a40fcfb11d747a71c9fd1df044"
+}

@@ -1,0 +1,40 @@
+{
+    "version": 2,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Default Config",
+            "description": "Default build using Ninja generator",
+            "generator": "Ninja",
+            "binaryDir": "$env{BUILD_DIR}",
+            "environment": {
+                "BUILD_DIR": "build/${presetName}/$env{BUILD_TYPE}"
+            },
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "20",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "wasm32-emscripten",
+            "displayName": "for web (Emscripten wasm32)",
+            "description": "Emscripten wasm32 build (requires EMSDK env)",
+            "inherits": "default",
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "wasm32-emscripten-pthread",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
+                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+                "VCPKG_ENV_PASSTHROUGH": "EMSDK"
+            }
+        }
+    ],
+
+    "buildPresets": [
+        {
+            "name": "wasm32-emscripten",
+            "configurePreset": "wasm32-emscripten",
+            "jobs": 0
+        }
+    ]
+}
