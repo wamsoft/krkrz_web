@@ -24,8 +24,7 @@
             "cacheVariables": {
                 "VCPKG_TARGET_TRIPLET": "wasm32-emscripten-pthread",
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
-                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
-                "VCPKG_ENV_PASSTHROUGH": "EMSDK"
+                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/wasm32-emscripten-pthread.toolchain.cmake"
             }
         }
     ],

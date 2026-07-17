@@ -97,6 +97,10 @@ endif()
 # SDL3 は静的リンク (wasm に shared は無い)
 set(SDL_SHARED OFF CACHE BOOL "Build SDL shared library")
 set(SDL_STATIC ON  CACHE BOOL "Build SDL static library")
+# SDL3 は Emscripten では pthread バックエンドがデフォルト OFF (ダミー実装で
+# SDL_CreateThread が何もせず、krkrz のスレッド起動待ちが永久ブロックする)。
+# krkrz は TimerThread 等でスレッド必須なので明示的に有効化する。
+set(SDL_PTHREADS ON CACHE BOOL "Use POSIX threads for multi-threading" FORCE)
 
 # Elements モーダル UI はメインスレッド上のネストポンプループを使うため
 # wasm では動かない。丸ごと除外する。
@@ -107,6 +111,8 @@ set(KRKRZ_USE_MOVIE OFF CACHE BOOL "" FORCE)
 set(KRKRZ_REPL OFF CACHE BOOL "" FORCE)
 set(KRKRZ_USE_LOGCORE OFF CACHE BOOL "" FORCE)
 set(KRKRZ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# DAP (VSCode デバッガ) は BSD socket 前提のため wasm では不可
+set(KRKRZ_ENABLE_DAP OFF CACHE BOOL "" FORCE)
 
 # krkrz プラットフォーム定義
 set(KRKRZ_DEFINES_PLATFORM
@@ -145,9 +151,12 @@ set(KRKRZ_WEB_DATA_DIR "${KRKRZ_DIR}/data" CACHE PATH "game data folder preloade
 # ----------------------------------------------------
 
 target_link_options(krkrz PRIVATE
-    # ワーカ事前確保: pthread 生成がメインループ復帰を待たずに済むようにする
-    # (TimerThread 等は起動直後にメインスレッドが生成完了を待つため必須)
-    -sPTHREAD_POOL_SIZE=16
+    # ワーカ事前確保: pthread 生成がメインループ復帰を待たずに済むようにする。
+    # krkrz はスレッド生成直後にメインスレッドが開始待ちでブロックするため、
+    # プールが枯渇すると新規 Worker を作れずデッドロックする (メインが
+    # イベントループに戻れないため)。常駐スレッド + DrawThread (最大コア数) +
+    # サウンドデコード分を見込んで多めに確保する。
+    "-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency+32"
     -sPTHREAD_POOL_SIZE_STRICT=0
     # メモリ: 初期 512MB、成長許可
     -sINITIAL_MEMORY=536870912
@@ -176,3 +185,7 @@ set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS
 target_link_options(krkrz PRIVATE
     $<$<CONFIG:Debug>:-sASSERTIONS=1>
 )
+
+# wasm の関数名を name section に保持 (スタックトレース可読化。サイズ増のみで
+# 実行速度への影響は無い。プロファイル/デバッグ支援)
+target_link_options(krkrz PRIVATE --profiling-funcs)

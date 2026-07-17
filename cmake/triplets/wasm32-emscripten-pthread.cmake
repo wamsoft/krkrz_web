@@ -9,30 +9,18 @@
 # 注意: SharedArrayBuffer を使うため、配信側 (ホスティング/開発サーバ) は
 # COOP/COEP ヘッダが必須 (web/serve.py 参照)。
 
-set(VCPKG_ENV_PASSTHROUGH_UNTRACKED EMSCRIPTEN_ROOT EMSDK PATH)
+set(VCPKG_ENV_PASSTHROUGH_UNTRACKED EMSDK PATH)
 
-if(NOT DEFINED ENV{EMSCRIPTEN_ROOT})
-   find_path(EMSCRIPTEN_ROOT "emcc")
-else()
-   set(EMSCRIPTEN_ROOT "$ENV{EMSCRIPTEN_ROOT}")
-endif()
-
-if(NOT EMSCRIPTEN_ROOT)
-   if(NOT DEFINED ENV{EMSDK})
-      message(FATAL_ERROR "The emcc compiler not found in PATH")
-   endif()
-   set(EMSCRIPTEN_ROOT "$ENV{EMSDK}/upstream/emscripten")
-endif()
-
-if(NOT EXISTS "${EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake")
-   message(FATAL_ERROR "Emscripten.cmake toolchain file not found")
+if(NOT DEFINED ENV{EMSDK})
+   message(FATAL_ERROR "EMSDK environment variable is required")
 endif()
 
 set(VCPKG_TARGET_ARCHITECTURE wasm32)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_CMAKE_SYSTEM_NAME Emscripten)
-set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake")
 
-set(VCPKG_C_FLAGS "-pthread")
-set(VCPKG_CXX_FLAGS "-pthread")
+# 独自 chainload toolchain 使用時、VCPKG_C_FLAGS はポートビルドへ反映されない
+# (vcpkg 標準 toolchain が読む変数のため)。そこで Emscripten.cmake を include
+# して *_FLAGS_INIT に -pthread を足すラッパー toolchain を chainload する。
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../toolchains/wasm32-emscripten-pthread.toolchain.cmake")
