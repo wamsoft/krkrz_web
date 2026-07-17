@@ -17,6 +17,22 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// canvas 表示フィット (アスペクト維持でビューポートに収める)。
+// SDL emscripten はマウス座標を canvas の実表示矩形から逆算するので
+// CSS 縮小してもゲーム側の座標系 (論理 1920x1080 等) は保たれる。
+// URL パラメータで挙動を変更できる:
+//   ?fit=0 … フィット無効 (CSS ピクセル等倍 = 従来表示)
+if (typeof window !== 'undefined') {
+    var krkrzParams = new URLSearchParams(window.location.search);
+    if (krkrzParams.get('fit') !== '0') {
+        var krkrzStyle = document.createElement('style');
+        krkrzStyle.textContent =
+            '#canvas { display: block; margin: 0 auto;' +
+            ' max-width: 100vw; max-height: 100vh; width: auto; height: auto; }';
+        document.head.appendChild(krkrzStyle);
+    }
+}
+
 // -drawthread=1: wasm では描画スレッドプールを増やしても pthread プールを
 // 圧迫するだけで益が薄いので 1 に固定 (最後のタスクはメインスレッド実行)
 Module['arguments'] = ['-drawdevice=sdl', '-drawthread=1', '/data'];
