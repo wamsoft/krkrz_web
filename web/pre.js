@@ -18,6 +18,30 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// サンプルランチャ連携:
+// TJS 側 (data/startup.tjs のランチャ) が Debug.message で
+// "@krkrz-web:launch-sample=<name>" を出力したら、?sample=<name> を付けて
+// ページをリロードし、そのサンプルフォルダをプロジェクトとして起動し直す。
+// エンジンのログ出力 (stdout/stderr) をフックして検知する。
+if (typeof window !== 'undefined') {
+    var krkrzHandleToken = function (text) {
+        var m = /@krkrz-web:launch-sample=([A-Za-z0-9_\-]+)/.exec(text);
+        if (m) {
+            var q = new URLSearchParams(window.location.search);
+            q.set('sample', m[1]);
+            window.location.search = q.toString();
+            return true;
+        }
+        return false;
+    };
+    Module['print'] = function (text) {
+        if (!krkrzHandleToken(String(text))) console.log(text);
+    };
+    Module['printErr'] = function (text) {
+        if (!krkrzHandleToken(String(text))) console.error(text);
+    };
+}
+
 // canvas のフィット表示 (アスペクト維持 / ?fit=0 で等倍) は web/shell.html の
 // CSS が担当する。SDL emscripten はマウス座標を canvas の実表示矩形から
 // 逆算するので、CSS 縮小してもゲーム側の座標系は保たれる。
@@ -46,19 +70,27 @@ if (typeof window !== 'undefined') {
 // -drawthread=1: wasm では描画スレッドプールを増やしても pthread プールを
 // 圧迫するだけで益が薄いので 1 に固定 (最後のタスクはメインスレッド実行)
 //
-// プロジェクトパスは preload 構成に応じて自動選択:
-//   /data.xp3 があれば引数を渡さずエンジンの自動発見に任せる
-//   (appPath 直下の data.xp3 が "data.xp3>" としてプロジェクトになる)。
-//   無ければフォルダ preload 構成なので /data を明示する。
-// preRun 時点では preload ファイルは展開済み (run() は依存完了後に走る)。
-Module['preRun'] = Module['preRun'] || [];
-Module['preRun'].push(function () {
+// プロジェクトパスは preload 構成と URL パラメータに応じて自動選択:
+//   ?sample=<name> … データ内サブフォルダ <name>/ をプロジェクトとして起動
+//                    (サンプルランチャからのリロード起動)
+//   xp3 構成 (KRKRZ_WEB_DATA_XP3=true、webconfig.js が定義) なら data.xp3>、
+//   フォルダ構成なら /data
+// 注意: Module.arguments は生成 JS のロード時に取り込まれるため、preRun 等の
+// 遅延コールバックではなくトップレベルで同期的に確定させること。
+(function () {
     var args = ['-drawdevice=sdl', '-drawthread=1'];
-    try {
-        if (!FS.analyzePath('/data.xp3').exists) args.push('/data');
-    } catch (e) {
+    var xp3 = (typeof KRKRZ_WEB_DATA_XP3 !== 'undefined') && KRKRZ_WEB_DATA_XP3;
+    var sample = null;
+    if (typeof window !== 'undefined') {
+        var s = new URLSearchParams(window.location.search).get('sample');
+        if (s && /^[A-Za-z0-9_\-]+$/.test(s)) sample = s;
+    }
+    if (sample) {
+        // 相対パス指定はエンジン側で appPath (=/) 前置で解決される
+        args.push(xp3 ? ('data.xp3>' + sample + '/') : ('data/' + sample + '/'));
+    } else if (!xp3) {
         args.push('/data');
     }
     Module['arguments'] = args;
-});
+})();
 

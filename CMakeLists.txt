@@ -163,7 +163,33 @@ add_subdirectory(${KRKRZ_DIR} ${CMAKE_BINARY_DIR}/krkrz)
 # 差し替える。
 # ----------------------------------------------------
 
-set(KRKRZ_WEB_DATA_DIR "${KRKRZ_DIR}/data" CACHE PATH "game data folder preloaded to /data")
+# 空 (既定) の場合は「サンプルランチャ一式」をステージングして使う:
+#   ${KRKRZ_BASE}/krkrz_dev/data (ランチャ + 拡張サンプル群)
+# + ${KRKRZ_DIR}/data を core/ サブフォルダとして合成 (コア機能テスト)
+# 案件データを使う場合は -DKRKRZ_WEB_DATA_DIR=<folder> で差し替える
+set(KRKRZ_WEB_DATA_DIR "" CACHE PATH "game data folder (empty = bundled sample launcher)")
+
+if(KRKRZ_WEB_DATA_DIR STREQUAL "")
+    set(_krkrz_web_samples_root ${KRKRZ_BASE}/krkrz_dev/data)
+    set(_krkrz_web_data_src ${CMAKE_BINARY_DIR}/sampledata)
+    set(_krkrz_web_stage_stamp ${CMAKE_BINARY_DIR}/sampledata.stamp)
+    file(GLOB_RECURSE _krkrz_web_stage_deps CONFIGURE_DEPENDS
+        "${_krkrz_web_samples_root}/*"
+        "${KRKRZ_DIR}/data/*")
+    add_custom_command(
+        OUTPUT ${_krkrz_web_stage_stamp}
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${_krkrz_web_samples_root} ${_krkrz_web_data_src}
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${KRKRZ_DIR}/data ${_krkrz_web_data_src}/core
+        COMMAND ${CMAKE_COMMAND} -E touch ${_krkrz_web_stage_stamp}
+        DEPENDS ${_krkrz_web_stage_deps}
+        COMMENT "Staging sample data (krkrz_dev/data + core data as core/)"
+    )
+else()
+    set(_krkrz_web_data_src ${KRKRZ_WEB_DATA_DIR})
+    set(_krkrz_web_stage_stamp "")
+endif()
 
 # ON: データフォルダを tools/xp3pack.py で 1 つの xp3 にパックして /data.xp3 に
 #     preload する (リリース形態)。エンジンは起動時に appPath 直下の data.xp3 を
@@ -199,23 +225,28 @@ target_link_options(krkrz PRIVATE
     # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)。
     # FS はデバッグ/検証時に外部からファイル注入するため export (Module.FS)
     -sEXPORTED_RUNTIME_METHODS=ccall,FS
-    # 起動引数・IDBFS マウントは pre.js で設定
-    "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
     # カスタム HTML シェル (黒背景 + canvas フィット + ローディング表示のみ。
     # emscripten 既定シェルのロゴ/チェックボックス/出力 textarea を排除)
     "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
 )
+# 注: pre.js はビルド構成フラグ (webconfig.js) の後に読み込む必要があるため、
+# データ構成確定後 (下方) で --pre-js を指定する
 
 if(KRKRZ_WEB_DATA_XP3)
     # データを build 時に xp3 へパックして単体 preload
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(KRKRZ_WEB_DATA_XP3_FILE ${CMAKE_BINARY_DIR}/gamedata.xp3)
-    file(GLOB_RECURSE _krkrz_web_data_files CONFIGURE_DEPENDS "${KRKRZ_WEB_DATA_DIR}/*")
+    if(_krkrz_web_stage_stamp STREQUAL "")
+        file(GLOB_RECURSE _krkrz_web_data_files CONFIGURE_DEPENDS "${_krkrz_web_data_src}/*")
+        set(_krkrz_web_pack_deps ${_krkrz_web_data_files})
+    else()
+        set(_krkrz_web_pack_deps ${_krkrz_web_stage_stamp})
+    endif()
     add_custom_command(
         OUTPUT ${KRKRZ_WEB_DATA_XP3_FILE}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp3pack.py
-            pack "${KRKRZ_WEB_DATA_DIR}" "${KRKRZ_WEB_DATA_XP3_FILE}"
-        DEPENDS ${_krkrz_web_data_files} ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp3pack.py
+            pack "${_krkrz_web_data_src}" "${KRKRZ_WEB_DATA_XP3_FILE}"
+        DEPENDS ${_krkrz_web_pack_deps} ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp3pack.py
         COMMENT "Packing game data to gamedata.xp3"
     )
     add_custom_target(krkrz_web_data_xp3 DEPENDS ${KRKRZ_WEB_DATA_XP3_FILE})
@@ -226,15 +257,39 @@ if(KRKRZ_WEB_DATA_XP3)
     set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${KRKRZ_WEB_DATA_XP3_FILE})
 else()
     # フォルダをそのまま /data に preload
+    if(NOT _krkrz_web_stage_stamp STREQUAL "")
+        add_custom_target(krkrz_web_data_stage DEPENDS ${_krkrz_web_stage_stamp})
+        add_dependencies(krkrz krkrz_web_data_stage)
+        set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${_krkrz_web_stage_stamp})
+    endif()
     target_link_options(krkrz PRIVATE
-        "SHELL:--preload-file ${KRKRZ_WEB_DATA_DIR}@/data"
+        "SHELL:--preload-file ${_krkrz_web_data_src}@/data"
     )
 endif()
 
-# pre.js / shell.html 更新でリリンクさせる
+# ビルド構成フラグ (webconfig.js)。Module.arguments は生成 JS のロード時に
+# 読み取られるため、pre.js がトップレベルで同期的に引数を組み立てられるよう
+# 構成情報を pre.js より先の --pre-js として注入する
+set(_krkrz_web_config_js ${CMAKE_BINARY_DIR}/webconfig.js)
+if(KRKRZ_WEB_DATA_XP3)
+    set(_krkrz_web_xp3_flag "true")
+else()
+    set(_krkrz_web_xp3_flag "false")
+endif()
+file(WRITE ${_krkrz_web_config_js}
+"// 生成物 (CMakeLists.txt): ビルド構成フラグ。pre.js より先に読み込まれる
+var KRKRZ_WEB_DATA_XP3 = ${_krkrz_web_xp3_flag};
+")
+target_link_options(krkrz PRIVATE
+    "SHELL:--pre-js ${_krkrz_web_config_js}"
+    "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
+)
+
+# pre.js / shell.html / webconfig.js 更新でリリンクさせる
 set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js
     ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
+    ${_krkrz_web_config_js}
 )
 
 # Debug ではアサーション有効
