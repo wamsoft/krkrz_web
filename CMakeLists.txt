@@ -186,13 +186,17 @@ target_link_options(krkrz PRIVATE
     -sEXPORTED_RUNTIME_METHODS=ccall
     # 起動引数・IDBFS マウントは pre.js で設定
     "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
+    # カスタム HTML シェル (黒背景 + canvas フィット + ローディング表示のみ。
+    # emscripten 既定シェルのロゴ/チェックボックス/出力 textarea を排除)
+    "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
     # ゲームデータを /data に preload
     "SHELL:--preload-file ${KRKRZ_WEB_DATA_DIR}@/data"
 )
 
-# pre.js / データ更新でリリンクさせる
+# pre.js / shell.html 更新でリリンクさせる
 set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js
+    ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
 )
 
 # Debug ではアサーション有効

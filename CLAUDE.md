@@ -30,7 +30,9 @@ make run        # build + web/serve.py (COOP/COEP ヘッダ付き) で http://lo
   変えるときは両方を意識すること。
 - ゲームデータ: `-DKRKRZ_WEB_DATA_DIR=<dir>` → `--preload-file` で MEMFS `/data` へ。
   既定は `krkrz_dev/src/core/data` (サンプル)。データだけ変えた場合もリリンクが必要。
-- 起動引数は `web/pre.js` の `Module['arguments']`。既定 `['-drawdevice=sdl', '/data']`。
+- 起動引数は `web/pre.js` の `Module['arguments']`。既定 `['-drawdevice=sdl', '-drawthread=1', '/data']`。
+- HTML は `web/shell.html` (カスタムシェル: 黒背景 + canvas フィット CSS +
+  ローディング表示。`?fit=0` で等倍表示)。emscripten 既定シェルは使わない。
 
 ## wasm 構成の要点 (なぜこうなっているか)
 

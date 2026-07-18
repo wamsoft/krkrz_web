@@ -17,21 +17,9 @@ if (typeof window !== 'undefined') {
     });
 }
 
-// canvas 表示フィット (アスペクト維持でビューポートに収める)。
-// SDL emscripten はマウス座標を canvas の実表示矩形から逆算するので
-// CSS 縮小してもゲーム側の座標系 (論理 1920x1080 等) は保たれる。
-// URL パラメータで挙動を変更できる:
-//   ?fit=0 … フィット無効 (CSS ピクセル等倍 = 従来表示)
-if (typeof window !== 'undefined') {
-    var krkrzParams = new URLSearchParams(window.location.search);
-    if (krkrzParams.get('fit') !== '0') {
-        var krkrzStyle = document.createElement('style');
-        krkrzStyle.textContent =
-            '#canvas { display: block; margin: 0 auto;' +
-            ' max-width: 100vw; max-height: 100vh; width: auto; height: auto; }';
-        document.head.appendChild(krkrzStyle);
-    }
-}
+// canvas のフィット表示 (アスペクト維持 / ?fit=0 で等倍) は web/shell.html の
+// CSS が担当する。SDL emscripten はマウス座標を canvas の実表示矩形から
+// 逆算するので、CSS 縮小してもゲーム側の座標系は保たれる。
 
 // devtools コンソール用 TJS REPL。コンソールから
 //   tjs('System.versionString')
