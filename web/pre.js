@@ -45,5 +45,20 @@ if (typeof window !== 'undefined') {
 
 // -drawthread=1: wasm では描画スレッドプールを増やしても pthread プールを
 // 圧迫するだけで益が薄いので 1 に固定 (最後のタスクはメインスレッド実行)
-Module['arguments'] = ['-drawdevice=sdl', '-drawthread=1', '/data'];
+//
+// プロジェクトパスは preload 構成に応じて自動選択:
+//   /data.xp3 があれば引数を渡さずエンジンの自動発見に任せる
+//   (appPath 直下の data.xp3 が "data.xp3>" としてプロジェクトになる)。
+//   無ければフォルダ preload 構成なので /data を明示する。
+// preRun 時点では preload ファイルは展開済み (run() は依存完了後に走る)。
+Module['preRun'] = Module['preRun'] || [];
+Module['preRun'].push(function () {
+    var args = ['-drawdevice=sdl', '-drawthread=1'];
+    try {
+        if (!FS.analyzePath('/data.xp3').exists) args.push('/data');
+    } catch (e) {
+        args.push('/data');
+    }
+    Module['arguments'] = args;
+});
 

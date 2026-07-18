@@ -31,15 +31,21 @@ make serve       # サーバのみ起動
 この 4 つを COOP/COEP ヘッダ付きで配信すればそのまま動く。
 
 ゲームデータは `-DKRKRZ_WEB_DATA_DIR=<folder>` で指定したフォルダが
-`krkrz.data` にパックされ、MEMFS の `/data` に preload される
-(既定は core 同梱のサンプルデータ)。**データだけ変更した場合もリリンクが必要**。
+ビルド時に `tools/xp3pack.py` で **1 つの xp3 にパック**され、`/data.xp3`
+として preload される (既定は core 同梱のサンプルデータ)。エンジンは起動時に
+`data.xp3` を自動発見してプロジェクトとして開く (リリース形態)。
+**データだけ変更した場合もリリンクが必要** (`make build` で再パックされる)。
 
 ```bash
 CMAKEOPT='-DKRKRZ_WEB_DATA_DIR=/path/to/game/data' make prebuild build
 ```
 
+開発時にファイル構成を devtools からそのまま見たい場合は
+`-DKRKRZ_WEB_DATA_XP3=OFF` でフォルダ直接 preload (`/data`) に切り替わる。
+どちらの構成かは pre.js が起動時に自動判別する。
+
 起動引数は `web/pre.js` の `Module['arguments']` で指定する。
-既定は `['-drawdevice=sdl', '-drawthread=1', '/data']`。
+既定は `['-drawdevice=sdl', '-drawthread=1']` (+ フォルダ構成時のみ `/data`)。
 
 ## 配信時の注意 (COOP/COEP)
 

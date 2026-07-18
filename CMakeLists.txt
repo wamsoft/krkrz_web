@@ -165,6 +165,13 @@ add_subdirectory(${KRKRZ_DIR} ${CMAKE_BINARY_DIR}/krkrz)
 
 set(KRKRZ_WEB_DATA_DIR "${KRKRZ_DIR}/data" CACHE PATH "game data folder preloaded to /data")
 
+# ON: データフォルダを tools/xp3pack.py で 1 つの xp3 にパックして /data.xp3 に
+#     preload する (リリース形態)。エンジンは起動時に appPath 直下の data.xp3 を
+#     自動発見してプロジェクトにする (sdl3/environ/stdapp.cpp)
+# OFF: フォルダをそのまま /data に preload する (開発向け。ファイル構成が
+#     ブラウザの devtools からそのまま見える)
+option(KRKRZ_WEB_DATA_XP3 "pack game data into a single xp3 (release-like layout)" ON)
+
 # ----------------------------------------------------
 # 実行ファイル (core 側 target 名 = krkrz) へのリンクオプション
 # ----------------------------------------------------
@@ -197,9 +204,32 @@ target_link_options(krkrz PRIVATE
     # カスタム HTML シェル (黒背景 + canvas フィット + ローディング表示のみ。
     # emscripten 既定シェルのロゴ/チェックボックス/出力 textarea を排除)
     "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
-    # ゲームデータを /data に preload
-    "SHELL:--preload-file ${KRKRZ_WEB_DATA_DIR}@/data"
 )
+
+if(KRKRZ_WEB_DATA_XP3)
+    # データを build 時に xp3 へパックして単体 preload
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(KRKRZ_WEB_DATA_XP3_FILE ${CMAKE_BINARY_DIR}/gamedata.xp3)
+    file(GLOB_RECURSE _krkrz_web_data_files CONFIGURE_DEPENDS "${KRKRZ_WEB_DATA_DIR}/*")
+    add_custom_command(
+        OUTPUT ${KRKRZ_WEB_DATA_XP3_FILE}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp3pack.py
+            pack "${KRKRZ_WEB_DATA_DIR}" "${KRKRZ_WEB_DATA_XP3_FILE}"
+        DEPENDS ${_krkrz_web_data_files} ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp3pack.py
+        COMMENT "Packing game data to gamedata.xp3"
+    )
+    add_custom_target(krkrz_web_data_xp3 DEPENDS ${KRKRZ_WEB_DATA_XP3_FILE})
+    add_dependencies(krkrz krkrz_web_data_xp3)
+    target_link_options(krkrz PRIVATE
+        "SHELL:--preload-file ${KRKRZ_WEB_DATA_XP3_FILE}@/data.xp3"
+    )
+    set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${KRKRZ_WEB_DATA_XP3_FILE})
+else()
+    # フォルダをそのまま /data に preload
+    target_link_options(krkrz PRIVATE
+        "SHELL:--preload-file ${KRKRZ_WEB_DATA_DIR}@/data"
+    )
+endif()
 
 # pre.js / shell.html 更新でリリンクさせる
 set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS
