@@ -132,6 +132,21 @@ tjs('Scripts.evalStorage("user://./ptest.tjs").v')   // → 42 が返れば OK
 起動引数 / devtools REPL `tjs()` / 早期エラーの title ミラー。
 シェル (ページ側) と pre.js (Module 側) で役割分担している。
 
+## ツール
+
+### tools/xp3pack.py — 簡易 XP3 アーカイバ
+
+```bash
+python tools/xp3pack.py pack <srcdir> <out.xp3>   # フォルダをパック
+python tools/xp3pack.py list <archive.xp3>        # 内容一覧
+python tools/xp3pack.py extract <arc.xp3> <dir>   # 展開 + adler32 検証
+```
+
+krkrz core の読み込み実装準拠 (zlib 圧縮インデックス/セグメント対応、
+画像・音声等の圧縮済み形式は自動で無圧縮格納)。暗号化には対応しない
+(暗号化込みのパッカーは krkrtemplate/makeworld 側のツールを使用)。
+wasm 実機で raw/zlib セグメント・サブディレクトリ・autopath 読み込みを検証済み。
+
 ## devtools コンソール = TJS REPL
 
 F12 → Console で任意の TJS 式を評価できる (MASTER ビルドには入らない):

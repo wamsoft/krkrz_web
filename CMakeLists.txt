@@ -189,8 +189,9 @@ target_link_options(krkrz PRIVATE
     -sFULL_ES3
     # セーブデータ永続化 (IDBFS)
     -lidbfs.js
-    # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)
-    -sEXPORTED_RUNTIME_METHODS=ccall
+    # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)。
+    # FS はデバッグ/検証時に外部からファイル注入するため export (Module.FS)
+    -sEXPORTED_RUNTIME_METHODS=ccall,FS
     # 起動引数・IDBFS マウントは pre.js で設定
     "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
     # カスタム HTML シェル (黒背景 + canvas フィット + ローディング表示のみ。
