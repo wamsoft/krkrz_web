@@ -102,9 +102,17 @@ set(SDL_STATIC ON  CACHE BOOL "Build SDL static library")
 # krkrz は TimerThread 等でスレッド必須なので明示的に有効化する。
 set(SDL_PTHREADS ON CACHE BOOL "Use POSIX threads for multi-threading" FORCE)
 
-# Elements モーダル UI はメインスレッド上のネストポンプループを使うため
-# wasm では動かない。丸ごと除外する。
-set(KRKRZ_USE_ELEMENTS OFF CACHE BOOL "" FORCE)
+# ThorVG が find_package(OpenMP) を auto-detect で行うが、Emscripten では
+# FindOpenMP が試しコンパイル時の暗黙リンクライブラリ (sysroot キャッシュの
+# debug/noexcept 変種) を絶対パスで焼き込み、-fwasm-exceptions のシステム
+# ライブラリと重複シンボルになる。wasm に OpenMP は不要なので検出ごと止める
+set(CMAKE_DISABLE_FIND_PACKAGE_OpenMP TRUE)
+
+# Elements は部分対応: 非同期 overlay 系 (Dialog.showJson/showFile) は動く。
+# モーダル系 (showModal* / navigator フロー / -userconf) はメインスレッドの
+# ネストポンプループが wasm で回せないため、core 側 SDLElementsModalRunner の
+# __EMSCRIPTEN__ ガードで実行時に失敗を返す
+set(KRKRZ_USE_ELEMENTS ON CACHE BOOL "" FORCE)
 # movie-player (libvpx) は wasm 初期スコープ外。VideoOverlay はスタブ化
 set(KRKRZ_USE_MOVIE OFF CACHE BOOL "" FORCE)
 # 端末前提の機能は無効化
