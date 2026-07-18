@@ -82,9 +82,8 @@ Cross-Origin-Embedder-Policy: require-corp
 - **右クリック**: canvas の `oncontextmenu` で既定メニューを抑止している
 
 `web/pre.js` は生成 JS の先頭に埋め込まれるフック側で、役割は
-起動引数 / IDBFS (`/save`) マウント / devtools REPL `tjs()` /
-早期エラーの title ミラー。シェル (ページ側) と pre.js (Module 側) で
-役割分担している。
+起動引数 / devtools REPL `tjs()` / 早期エラーの title ミラー。
+シェル (ページ側) と pre.js (Module 側) で役割分担している。
 
 ## devtools コンソール = TJS REPL
 
@@ -104,7 +103,7 @@ tjs('Debug.message("hello")')
 | TJS 例外 | ○ `-fwasm-exceptions` (必須。外すと TJS エラーで即 abort) |
 | 静的プラグイン | ○ csvParser / extNagano / extrans / json / KAGParserEx / saveStruct / scriptsEx |
 | Elements ダイアログ | △ overlay 系 (showJson/showFile) のみ。モーダル系は実行時エラー |
-| セーブデータ | △ `/save` を IDBFS マウント済。**書込後の永続化フラッシュは未実装** (リロードで消える) |
+| セーブデータ (`user://`) | ○ IndexedDB へ自動永続化 (SDL_EMSCRIPTEN_PERSISTENT_PATH + IDBFS autoPersist)。リロード/再起動をまたいで残存することを検証済み |
 | 動画 (VideoOverlay) | × KRKRZ_USE_MOVIE=OFF (スタブ) |
 | コンソール REPL / DAP | × (devtools REPL で代替) |
 
