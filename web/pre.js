@@ -18,6 +18,22 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// 開発用: ?opfsclear で OPFS (web:// メディアの永続キャッシュ) を全消しする。
+// アセット更新時にキャッシュが古いままになるのを手動リセットするため。
+// 本番では cache busting (ファイル名/URL 変更) で更新する運用。
+if (typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('opfsclear') === '1') {
+    (async function () {
+        try {
+            var root = await navigator.storage.getDirectory();
+            for await (var name of root.keys()) {
+                await root.removeEntry(name, { recursive: true });
+            }
+            console.log('krkrz: OPFS cleared');
+        } catch (e) { console.warn('krkrz: OPFS clear failed', e); }
+    })();
+}
+
 // 未処理スクリプト例外ハンドラ (engine の SDL3Application::OnUnhandledScriptException
 // から MAIN_THREAD_EM_ASM 経由で呼ばれる)。
 // - 音を止める (SDL の AudioContext を suspend)
