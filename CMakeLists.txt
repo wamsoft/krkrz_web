@@ -42,6 +42,8 @@ set(SIMPLEBIND_DIR ${PLUGINS_DIR}/simplebinder)
 
 LIST(APPEND TVP_PLUGINS_STATIC
   csvParser
+  extNagano
+  extrans
   json
   KAGParserEx
   saveStruct
