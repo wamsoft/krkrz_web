@@ -59,7 +59,7 @@ LIST(APPEND TVP_PLUGINS
 #
 # トップの vcpkg.json を BASE に、プラグイン各自の vcpkg.json をマージして
 # ${CMAKE_BINARY_DIR}/manifest/vcpkg.json に書き出し、VCPKG_MANIFEST_DIR を
-# そこへ向ける (krkrz_nx と同方式)。core 側も同名関数で再マージするが
+# そこへ向ける。core 側も同名関数で再マージするが
 # 出力先が違うため干渉しない。
 # ----------------------------------------------------
 

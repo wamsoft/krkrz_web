@@ -4,8 +4,8 @@
 プロジェクトテンプレート。
 
 このリポジトリは「ガワ」のみで、エンジン本体・プラグインのソースは
-`krkrz_dev` (umbrella リポジトリ) から参照する。`krkrz_nx` (コンソール版) /
-`krkrz_android` (Android 版) と同じ外枠方式。
+`krkrz_dev` (umbrella リポジトリ) から参照する。`krkrz_android` (Android 版)
+と同じ外枠方式。
 
 ## 必要なもの
 
