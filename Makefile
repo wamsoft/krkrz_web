@@ -17,14 +17,24 @@ EMSDK ?= D:/work/emsdk
 PORT ?= 8080
 CMAKEOPT ?=
 
+# 案件フォルダ (任意で web-config.json を持つ)。`make PROJECT_DIR=<path> web` で
+# その案件の resource/data を構成し ${PROJECT_DIR}/build/web/site へ出力する。
+PROJECT_DIR ?=
+
 export EMSDK
 export BUILD_TYPE
 
 BUILD_DIR = build/$(PRESET)/$(BUILD_TYPE)
 
-.PHONY: all prebuild build run serve clean
+.PHONY: all prebuild build run serve clean web
 
 all: build
+
+# 案件フォルダ (PROJECT_DIR) を web サイトとしてステージング。
+# 例: make PROJECT_DIR=/d/work/game/pc2_harukaze_marco_andver web
+web:
+	@test -n "$(PROJECT_DIR)" || (echo "PROJECT_DIR を指定してください (make PROJECT_DIR=<path> web)"; exit 2)
+	python tools/stage_web.py "$(PROJECT_DIR)" --build-type $(BUILD_TYPE)
 
 prebuild:
 	cmake --preset $(PRESET) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKEOPT)

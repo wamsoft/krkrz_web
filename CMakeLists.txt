@@ -206,6 +206,11 @@ add_subdirectory(${KRKRZ_DIR} ${CMAKE_BINARY_DIR}/krkrz)
 # 案件データを使う場合は -DKRKRZ_WEB_DATA_DIR=<folder> で差し替える
 set(KRKRZ_WEB_DATA_DIR "" CACHE PATH "game data folder (empty = bundled sample launcher)")
 
+# データを MEMFS に preload するか。案件で巨大データを web:// でオンデマンド配信する
+# 場合は OFF にして /data(.xp3) を焼かない (stage_web.py が web:// 配信を用意する)。
+option(KRKRZ_WEB_DATA_PRELOAD "preload game data into MEMFS (OFF = serve via web://)" ON)
+
+if(KRKRZ_WEB_DATA_PRELOAD)
 if(KRKRZ_WEB_DATA_DIR STREQUAL "")
     set(_krkrz_web_samples_root ${KRKRZ_BASE}/krkrz_dev/data)
     set(_krkrz_web_data_src ${CMAKE_BINARY_DIR}/sampledata)
@@ -309,6 +314,7 @@ else()
         "SHELL:--preload-file ${_krkrz_web_data_src}@/data"
     )
 endif()
+endif() # KRKRZ_WEB_DATA_PRELOAD
 
 # ----------------------------------------------------
 # リソース (config.cf / messages.json / フォント / SysInitScript.tjs 等) を
@@ -329,15 +335,33 @@ set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${_krkrz_web_res_deps})
 # ビルド構成フラグ (webconfig.js)。Module.arguments は生成 JS のロード時に
 # 読み取られるため、pre.js がトップレベルで同期的に引数を組み立てられるよう
 # 構成情報を pre.js より先の --pre-js として注入する
+# 案件サイト用の既定 webbase。非空だと URL に ?webbase 等が無くても既定で
+# web:// プロジェクト起動する (stage_web.py が案件配信元 "gamedata/" を焼く)。
+set(KRKRZ_WEB_DEFAULT_WEBBASE "" CACHE STRING "default webbase for web:// project launch (empty = sample launcher)")
+
+# 案件サイト用の既定起動引数 (空白区切り)。config.cf より優先される
+# コマンドライン扱いなので、wasm32 の 2GB に収めるためのプールサイズ上書き等に使う
+# (例: "-bitmappoolsize=512 -filepoolsize=256")。stage_web.py が web-config.json の
+# "args" から焼く。
+set(KRKRZ_WEB_DEFAULT_ARGS "" CACHE STRING "default extra launch args (space-separated, highest priority)")
+
 set(_krkrz_web_config_js ${CMAKE_BINARY_DIR}/webconfig.js)
 if(KRKRZ_WEB_DATA_XP3)
     set(_krkrz_web_xp3_flag "true")
 else()
     set(_krkrz_web_xp3_flag "false")
 endif()
+if(KRKRZ_WEB_DATA_PRELOAD)
+    set(_krkrz_web_preload_flag "true")
+else()
+    set(_krkrz_web_preload_flag "false")
+endif()
 file(WRITE ${_krkrz_web_config_js}
 "// 生成物 (CMakeLists.txt): ビルド構成フラグ。pre.js より先に読み込まれる
 var KRKRZ_WEB_DATA_XP3 = ${_krkrz_web_xp3_flag};
+var KRKRZ_WEB_DATA_PRELOAD = ${_krkrz_web_preload_flag};
+var KRKRZ_WEB_DEFAULT_WEBBASE = \"${KRKRZ_WEB_DEFAULT_WEBBASE}\";
+var KRKRZ_WEB_DEFAULT_ARGS = \"${KRKRZ_WEB_DEFAULT_ARGS}\";
 ")
 target_link_options(krkrz PRIVATE
     "SHELL:--pre-js ${_krkrz_web_config_js}"

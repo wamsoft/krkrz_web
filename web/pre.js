@@ -146,7 +146,10 @@ if (typeof window !== 'undefined') {
     //                  そのままプロジェクトとして起動する (オンデマンド配信テスト)。
     // ?readencoding=<enc> : スクリプト読み込みエンコーディング (Shift-JIS 案件は
     //                  Shift_JIS)。UTF-8 案件は不要。
-    var webbase = params.get('webbase');
+    // webbase: URL 指定が最優先。無ければ案件サイトの既定 (webconfig.js の
+    // KRKRZ_WEB_DEFAULT_WEBBASE。stage_web.py が案件配信元 "gamedata/" を焼く)。
+    var defbase = (typeof KRKRZ_WEB_DEFAULT_WEBBASE !== 'undefined') ? KRKRZ_WEB_DEFAULT_WEBBASE : '';
+    var webbase = params.get('webbase') || defbase;
     if (webbase) args.push('-webbase=' + webbase);
     var readenc = params.get('readencoding');
     if (readenc && /^[A-Za-z0-9_\-]+$/.test(readenc)) args.push('-readencoding=' + readenc);
@@ -154,7 +157,15 @@ if (typeof window !== 'undefined') {
     var sample = params.get('sample');
     if (sample && !/^[A-Za-z0-9_\-]+$/.test(sample)) sample = null;
 
-    if (params.get('webproject') === '1') {
+    // ?webproject=1、または案件サイト (既定 webbase 有り & sample 指定無し) は
+    // web:// プロジェクト起動。これで案件サイトは引数なし URL で直接起動する。
+    // 案件サイトの既定追加引数 (webconfig.js の KRKRZ_WEB_DEFAULT_ARGS)。
+    // config.cf より優先されるので、wasm32 の 2GB に収めるプールサイズ上書き等に使う。
+    if (typeof KRKRZ_WEB_DEFAULT_ARGS !== 'undefined' && KRKRZ_WEB_DEFAULT_ARGS) {
+        KRKRZ_WEB_DEFAULT_ARGS.split(/\s+/).forEach(function (a) { if (a) args.push(a); });
+    }
+
+    if (params.get('webproject') === '1' || (defbase && !sample)) {
         args.push('web://./');
     } else if (sample) {
         // 相対パス指定はエンジン側で appPath (=/) 前置で解決される
