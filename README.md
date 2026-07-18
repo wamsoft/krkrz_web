@@ -53,6 +53,53 @@ Cross-Origin-Embedder-Policy: require-corp
 `web/serve.py` はこれを付けて配信する開発用サーバ。itch.io は
 「SharedArrayBuffer support」を有効にすれば配信できる。
 
+## セーブデータの永続化と識別名 (リリース時の必須確認)
+
+### 仕組み
+
+`user://` への書き込みはブラウザの **IndexedDB** に自動永続化される。
+チェーンは以下のとおりで、エンジン側・ページ側に追加コードは無い:
+
+- CMakeLists.txt で `SDL_EMSCRIPTEN_PERSISTENT_PATH=/persist` を設定
+  → SDL が起動前に `/persist` へ IDBFS を `autoPersist` 付きでマウントし、
+  IndexedDB からの復元完了を**待ってから**エンジンを開始する
+- `user://` (SDL_OpenUserStorage 経由) の実体は
+  `/persist/<orgname>/<appname>/` 配下
+- ファイルクローズ時の一括書き込み (`SDL_WriteStorageFile`) を IDBFS の
+  autoPersist が検知し、自動で IndexedDB へ書き戻す
+
+### orgname / appname の設定 (タイトル毎に必ず設定する)
+
+保存場所の識別名は起動引数で決まる。`web/pre.js` の `Module['arguments']` に追加:
+
+```js
+Module['arguments'] = ['-drawdevice=sdl', '-drawthread=1',
+                       '-orgname=yourbrand', '-appname=yourtitle', '/data'];
+```
+
+**未設定時の既定は `wamsoft` / `krkrz`**。IndexedDB は「オリジン
+(ドメイン) 単位」なので、**同じドメインで複数タイトルを配信する場合、
+識別名が同じだとセーブデータ領域が共有・衝突する**。リリース時は
+タイトル毎に一意な組み合わせを必ず設定すること。
+
+### リリース時に把握しておくべき挙動
+
+- **保存はオリジン単位**: 配信ドメインを変える (移転する) と、識別名が
+  同じでもセーブは引き継がれない
+- **ユーザ操作で消える**: ブラウザの「サイトデータの削除」でセーブも消える。
+  長期保持が重要なタイトルはセーブのエクスポート/インポート手段の提供を検討
+- **プライベートブラウジング**: 保存できない・タブを閉じると消える場合がある
+- 容量はブラウザのクォータ管理に従う (通常のセーブデータ量では問題にならない)
+
+### 動作確認の手順 (devtools コンソール)
+
+```js
+// 書き込み (ストリームクローズ時に IndexedDB へ自動反映)
+tjs('(Dictionary.saveStruct incontextof (%[v:42]))("user://./ptest.tjs")')
+// → ページをリロード後:
+tjs('Scripts.evalStorage("user://./ptest.tjs").v')   // → 42 が返れば OK
+```
+
 ## カスタムシェル (web/shell.html)
 
 生成される `krkrz.html` の雛形。emscripten 既定シェルは使わず、
