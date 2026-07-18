@@ -178,6 +178,18 @@ add_link_options(-pthread -fwasm-exceptions)
 # 出力は .html (+ .js/.wasm/.data)。emcc 標準シェルでそのまま起動確認できる
 set(CMAKE_EXECUTABLE_SUFFIX ".html")
 
+# 埋め込みリソースフォルダの差し替え (NX の setup/nxresource / Android の asset 相当)。
+# 案件の config.cf / messages.json / SysInitScript.tjs / フォント一式を wasm に
+# 埋め込みたい場合に指定する。空なら core 同梱の既定リソースを使う。
+#   -DKRKRZ_WEB_RESOURCE_DIR=<案件のリソースフォルダ>
+# 例: -DKRKRZ_WEB_RESOURCE_DIR=D:/work/game/pc2_harukaze_marco_andver/setup/nxresource
+# core の KRKRZ_RESOURCE_DIR に橋渡しする (add_subdirectory の前に確定させる)。
+set(KRKRZ_WEB_RESOURCE_DIR "" CACHE PATH "埋め込みリソースフォルダ (空=core 同梱の既定)")
+if(NOT KRKRZ_WEB_RESOURCE_DIR STREQUAL "")
+    set(KRKRZ_RESOURCE_DIR "${KRKRZ_WEB_RESOURCE_DIR}" CACHE PATH "" FORCE)
+    message(STATUS "krkrz_web: embedding resource dir: ${KRKRZ_WEB_RESOURCE_DIR}")
+endif()
+
 add_subdirectory(${KRKRZ_DIR} ${CMAKE_BINARY_DIR}/krkrz)
 
 # ----------------------------------------------------
