@@ -42,8 +42,12 @@ make run        # build + web/serve.py (COOP/COEP ヘッダ付き) で http://lo
   「スレッド生成をメインスレッドが待つ」箇所 (tTVPThread::StartThread) が
   デッドロックしないためのワーカ事前確保で、**削ると起動時にハングする**。
 - **プラグインは全静的リンク** (`TVP_PLUGINS_STATIC`)。wasm に SDL_LoadObject は無い。
-- **KRKRZ_USE_ELEMENTS=OFF**: Elements モーダルは SDL_Delay 入りネストポンプループ
-  (SDLElementsModalRunner.cpp) でメインスレッドをブロックするため wasm では動かない。
+- **Elements モーダルは JSPI で対応**: モーダルの同期待機ループ (PumpModalLoop) の
+  SDL_Delay を wasm では JSPI (requestAnimationFrame await) に置換し、メインスレッドを
+  ブロックせず次フレームまで suspend する。これを成立させるため wasm では
+  SDL_MAIN_USE_CALLBACKS ではなく **promising な自前 main() の while ループ**で駆動する
+  (core sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。ビルドに -sJSPI 必須、
+  実行に JSPI 対応ブラウザ (Chrome 137+) 必須。TJS API・デスクトップ挙動は不変
 - **KRKRZ_USE_MOVIE=OFF**: movie-player (libvpx) は初期スコープ外。
   TVPCreateMoviePlayer は core 側 movie_null.cpp のスタブ (常に nullptr)。
 - **描画**: 既定 `-drawdevice=sdl` (SDL_Renderer → WebGL)。OGLDrawDevice 系

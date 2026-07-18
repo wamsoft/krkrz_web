@@ -220,6 +220,12 @@ target_link_options(krkrz PRIVATE
     # OGLDrawDevice の glMapBufferRange 等 (WebGL2 に無い GLES3 API) の
     # エミュレーションを有効化
     -sFULL_ES3
+    # JSPI (JavaScript Promise Integration): Elements モーダルダイアログの
+    # 同期待機ループ (PumpModalLoop) が、メインスレッドをブロックせず JSPI で
+    # 次フレームまで suspend できるようにする。wasm メインループは
+    # SDL_MAIN_USE_CALLBACKS ではなく promising な自前 main() を使う
+    # (sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。Chrome 137+ / 対応ブラウザ必須
+    -sJSPI
     # セーブデータ永続化 (IDBFS)
     -lidbfs.js
     # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)。

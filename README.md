@@ -170,7 +170,7 @@ tjs('Debug.message("hello")')
 | スレッド (Timer/サウンド/画像ロード) | ○ pthread + SharedArrayBuffer |
 | TJS 例外 | ○ `-fwasm-exceptions` (必須。外すと TJS エラーで即 abort) |
 | 静的プラグイン | ○ csvParser / extNagano / extrans / json / KAGParserEx / saveStruct / scriptsEx |
-| Elements ダイアログ | △ overlay 系 (showJson/showFile) のみ。モーダル系は実行時エラー |
+| Elements ダイアログ | ○ overlay 系 + **モーダル系 (showModal*) も JSPI で動作**。要 JSPI 対応ブラウザ (Chrome 137+) |
 | セーブデータ (`user://`) | ○ IndexedDB へ自動永続化 (SDL_EMSCRIPTEN_PERSISTENT_PATH + IDBFS autoPersist)。リロード/再起動をまたいで残存することを検証済み |
 | 動画 (VideoOverlay) | × KRKRZ_USE_MOVIE=OFF (スタブ) |
 | コンソール REPL / DAP | × (devtools REPL で代替) |
