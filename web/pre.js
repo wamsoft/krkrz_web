@@ -138,12 +138,25 @@ if (typeof window !== 'undefined') {
     }
     var args = ['-drawdevice=' + dd, '-drawthread=1'];
     var xp3 = (typeof KRKRZ_WEB_DATA_XP3 !== 'undefined') && KRKRZ_WEB_DATA_XP3;
-    var sample = null;
-    if (typeof window !== 'undefined') {
-        var s = new URLSearchParams(window.location.search).get('sample');
-        if (s && /^[A-Za-z0-9_\-]+$/.test(s)) sample = s;
-    }
-    if (sample) {
+    var params = (typeof window !== 'undefined')
+        ? new URLSearchParams(window.location.search) : new URLSearchParams();
+
+    // ?webbase=<url> : web:// メディアの fetch ベース URL (案件データの配信元)。
+    // ?webproject=1  : プロジェクトパスを web://./ にし、サーバ上のバラファイルを
+    //                  そのままプロジェクトとして起動する (オンデマンド配信テスト)。
+    // ?readencoding=<enc> : スクリプト読み込みエンコーディング (Shift-JIS 案件は
+    //                  Shift_JIS)。UTF-8 案件は不要。
+    var webbase = params.get('webbase');
+    if (webbase) args.push('-webbase=' + webbase);
+    var readenc = params.get('readencoding');
+    if (readenc && /^[A-Za-z0-9_\-]+$/.test(readenc)) args.push('-readencoding=' + readenc);
+
+    var sample = params.get('sample');
+    if (sample && !/^[A-Za-z0-9_\-]+$/.test(sample)) sample = null;
+
+    if (params.get('webproject') === '1') {
+        args.push('web://./');
+    } else if (sample) {
         // 相対パス指定はエンジン側で appPath (=/) 前置で解決される
         args.push(xp3 ? ('data.xp3>' + sample + '/') : ('data/' + sample + '/'));
     } else if (!xp3) {

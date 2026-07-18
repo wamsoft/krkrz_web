@@ -32,22 +32,42 @@ endif()
 # (pre-project で定義: core 側の vcpkg manifest マージ判定にも使われる)
 # ----------------------------------------------------
 
+# プラグイン参照先 (krkrz_nx / krkrz_android と同じ 3 フォルダ構成)
 LIST(APPEND TVP_PLUGIN_FOLDERS
    ${PLUGINS_DIR}
+   ${KRKRZ_BASE}/wamsoft_work
+   ${KRKRZ_BASE}/krkrtemplate/plugins_utf8
 )
 
 set(TPSTUB_DIR ${KRKRZ_DIR}/tp_stub)
 set(NCBIND_DIR ${PLUGINS_DIR}/ncbind)
 set(SIMPLEBIND_DIR ${PLUGINS_DIR}/simplebinder)
 
+# krkrz_nx と同じ組み込みプラグイン一式 (Android/コンソール専用の
+# virtualpad / androidconfig / license / ps5* を除く)。案件 (KAG3 ADV) が
+# 依存するプラグインを揃える。+ web で追加した extrans / extNagano。
 LIST(APPEND TVP_PLUGINS_STATIC
+# krkrz_dev/src/plugins
   csvParser
-  extNagano
-  extrans
+  getSample
   json
   KAGParserEx
+  layerExBTOA
+  layerExImage
+  layerExRaster
   saveStruct
   scriptsEx
+  shrinkCopy
+# krkrtemplate/plugins_utf8
+  getLangName
+  textrender
+  tjsDataPack
+  tlgSliceLoader
+# wamsoft_work
+  psbfile
+# web 追加 (トランジション)
+  extrans
+  extNagano
 )
 
 LIST(APPEND TVP_PLUGINS
@@ -124,6 +144,11 @@ set(CMAKE_DISABLE_FIND_PACKAGE_OpenMP TRUE)
 set(KRKRZ_USE_ELEMENTS ON CACHE BOOL "" FORCE)
 # movie-player (libvpx) は wasm 初期スコープ外。VideoOverlay はスタブ化
 set(KRKRZ_USE_MOVIE OFF CACHE BOOL "" FORCE)
+# テキスト読み込みエンコーディングは UTF-8 固定バイナリにしておき、Shift-JIS
+# 案件は起動オプション -readencoding=Shift_JIS で実行時に切り替える
+# (DefaultReadEncoding は実行時変数。TVPInitScriptEngine で -readencoding を
+#  パースし startup.tjs 実行前に反映される)。案件ごとの再ビルドが不要になる。
+set(KRKRZ_USE_SJIS OFF CACHE BOOL "" FORCE)
 # 端末前提の機能は無効化
 set(KRKRZ_REPL OFF CACHE BOOL "" FORCE)
 set(KRKRZ_USE_LOGCORE OFF CACHE BOOL "" FORCE)
