@@ -18,6 +18,42 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// 未処理スクリプト例外ハンドラ (engine の SDL3Application::OnUnhandledScriptException
+// から MAIN_THREAD_EM_ASM 経由で呼ばれる)。
+// - 音を止める (SDL の AudioContext を suspend)
+// - shell の #error オーバーレイに本文と trace を出し、リロードを促す
+// - ?onerror=reload なら自動リロード (起動直後の連続エラーはガードで抑止)
+if (typeof window !== 'undefined') {
+    globalThis.krkrzOnScriptError = function (message, trace) {
+        // オーディオ停止 (ぶつぶつ回避)
+        try {
+            if (typeof SDL3 !== 'undefined' && SDL3.audioContext) {
+                SDL3.audioContext.suspend();
+            }
+        } catch (e) {}
+
+        console.error('krkrz script exception:\n' + message + (trace ? '\n' + trace : ''));
+
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('onerror') === 'reload') {
+            // 無限リロード抑止: 直近の自動リロードから一定時間内は手動表示に切替
+            var now = Date.now();
+            var last = 0;
+            try { last = parseInt(sessionStorage.getItem('krkrz-autoreload-at') || '0', 10); } catch (e) {}
+            if (now - last > 4000) {
+                try { sessionStorage.setItem('krkrz-autoreload-at', String(now)); } catch (e) {}
+                window.location.reload();
+                return;
+            }
+            // 連続エラー: 自動リロードをやめて画面表示に落とす
+        }
+
+        if (typeof Module !== 'undefined' && typeof Module.showError === 'function') {
+            Module.showError(message, trace);
+        }
+    };
+}
+
 // サンプルランチャ連携:
 // TJS 側 (data/startup.tjs のランチャ) が Debug.message で
 // "@krkrz-web:launch-sample=<name>" を出力したら、?sample=<name> を付けて

@@ -61,6 +61,46 @@
     animation: krkrz-spin 1s linear infinite;
   }
   @keyframes krkrz-spin { to { transform: rotate(360deg); } }
+  /* スクリプト例外オーバーレイ */
+  #error {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding: 32px 40px;
+    gap: 16px;
+    background: rgba(10, 12, 16, 0.94);
+    color: #eaeaea;
+    font-family: sans-serif;
+    z-index: 20;
+    overflow: auto;
+  }
+  #error.show { display: flex; }
+  #error h2 { margin: 0; font-size: 20px; color: #ff8080; }
+  #error pre {
+    flex: 1;
+    margin: 0;
+    padding: 16px;
+    background: #000;
+    border: 1px solid #333;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow: auto;
+  }
+  #error .buttons { display: flex; gap: 12px; }
+  #error button {
+    padding: 10px 24px;
+    font-size: 15px;
+    border: 0;
+    border-radius: 6px;
+    background: #3a6ea5;
+    color: #fff;
+    cursor: pointer;
+  }
+  #error button:hover { background: #4a80bd; }
 </style>
 </head>
 <body>
@@ -69,6 +109,13 @@
     <div id="status">読み込み中...</div>
   </div>
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <div id="error">
+    <h2>スクリプトエラーが発生しました</h2>
+    <pre id="error-body"></pre>
+    <div class="buttons">
+      <button id="error-reload">リロードして再起動</button>
+    </div>
+  </div>
   <script>
     if (new URLSearchParams(location.search).get('fit') === '0') {
       document.body.classList.add('nofit');
@@ -91,8 +138,17 @@
       onRuntimeInitialized: function () {
         // データ preload 完了 = 実行開始でローディングを畳む
         Module.setStatus('');
+      },
+      // 未処理スクリプト例外の表示 (pre.js の krkrzOnScriptError から呼ばれる)
+      showError: function (message, trace) {
+        var body = document.getElementById('error-body');
+        body.textContent = message + (trace ? '\n\n' + trace : '');
+        document.getElementById('error').classList.add('show');
       }
     };
+    document.getElementById('error-reload').addEventListener('click', function () {
+      window.location.reload();
+    });
     Module.setStatus('読み込み中...');
   </script>
   {{{ SCRIPT }}}
