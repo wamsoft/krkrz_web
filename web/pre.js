@@ -78,7 +78,13 @@ if (typeof window !== 'undefined') {
 // 注意: Module.arguments は生成 JS のロード時に取り込まれるため、preRun 等の
 // 遅延コールバックではなくトップレベルで同期的に確定させること。
 (function () {
-    var args = ['-drawdevice=sdl', '-drawthread=1'];
+    // ?drawdevice=sdl|ogl|sdlogl で描画デバイスを切替可能 (検証用)。既定 sdl
+    var dd = 'sdl';
+    if (typeof window !== 'undefined') {
+        var d = new URLSearchParams(window.location.search).get('drawdevice');
+        if (d && /^[a-z]+$/.test(d)) dd = d;
+    }
+    var args = ['-drawdevice=' + dd, '-drawthread=1'];
     var xp3 = (typeof KRKRZ_WEB_DATA_XP3 !== 'undefined') && KRKRZ_WEB_DATA_XP3;
     var sample = null;
     if (typeof window !== 'undefined') {
