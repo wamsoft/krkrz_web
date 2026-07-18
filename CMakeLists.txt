@@ -310,6 +310,22 @@ else()
     )
 endif()
 
+# ----------------------------------------------------
+# リソース (config.cf / messages.json / フォント / SysInitScript.tjs 等) を
+# MEMFS /resource に upfront preload する。
+#
+# wasm には埋め込まない (KRKRZ_EMSCRIPTEN_EMBED_RESOURCE=OFF)。エンジンは
+# ResourcePath=file://./resource/ から同期で読む (最初期の config.cf=charset も安全)。
+# バイナリはリソース非依存 = 案件横断で共有でき、案件別 charset/フォントは
+# ここで preload する resource フォルダ (KRKRZ_RESOURCE_DIR、案件では
+# KRKRZ_WEB_RESOURCE_DIR=<案件 nxresource>) だけで切り替わる。
+# ----------------------------------------------------
+file(GLOB_RECURSE _krkrz_web_res_deps CONFIGURE_DEPENDS "${KRKRZ_RESOURCE_DIR}/*")
+target_link_options(krkrz PRIVATE
+    "SHELL:--preload-file ${KRKRZ_RESOURCE_DIR}@/resource"
+)
+set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${_krkrz_web_res_deps})
+
 # ビルド構成フラグ (webconfig.js)。Module.arguments は生成 JS のロード時に
 # 読み取られるため、pre.js がトップレベルで同期的に引数を組み立てられるよう
 # 構成情報を pre.js より先の --pre-js として注入する
