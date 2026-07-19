@@ -171,7 +171,11 @@ if (typeof window !== 'undefined') {
             }
             var el = document.getElementById('loading-count');
             var n = globalThis.__krkrzWebFetchCount || 0;
-            if (el && n > 0) el.textContent = '取得ファイル: ' + n;
+            var b = globalThis.__krkrzWebFetchBytes || 0;
+            if (el && n > 0) {
+                el.textContent = '取得ファイル: ' + n
+                    + ' (' + (b / 1048576).toFixed(1) + 'MB)';
+            }
         }, 300);
         globalThis.krkrzOnStartupScriptDone = function () {
             clearInterval(counterTimer);

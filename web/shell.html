@@ -75,6 +75,22 @@
     opacity: 0.7;
     min-height: 1em;
   }
+  /* ダウンロード進捗バー (wasm データ取得中のみ表示) */
+  #loading-bar {
+    width: 260px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(128, 128, 128, 0.35);
+    overflow: hidden;
+    display: none;
+  }
+  #loading-bar-fill {
+    height: 100%;
+    width: 0;
+    background: currentColor;
+    opacity: 0.85;
+    transition: width 0.15s;
+  }
   #spinner {
     width: 32px;
     height: 32px;
@@ -132,6 +148,7 @@
     <div class="box">
       <div id="spinner"></div>
       <div id="status">読み込み中...</div>
+      <div id="loading-bar"><div id="loading-bar-fill"></div></div>
       <div id="loading-count"></div>
     </div>
   </div>
@@ -163,9 +180,24 @@
       setStatus: (function () {
         var statusEl = document.getElementById('status');
         var loadingEl = document.getElementById('loading');
+        var barEl = document.getElementById('loading-bar');
+        var fillEl = document.getElementById('loading-bar-fill');
+        var mb = function (n) { return (n / 1048576).toFixed(1) + 'MB'; };
         return function (text) {
           if (text) {
-            statusEl.textContent = text;
+            // emscripten の "Downloading data... (loaded/total)" を
+            // プログレスバー + 実サイズ表記に変換する
+            var m = /^(.*?)\s*\((\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)\s*$/.exec(text);
+            if (m) {
+              var loaded = parseFloat(m[2]), total = parseFloat(m[3]);
+              statusEl.textContent = 'データダウンロード中 '
+                + mb(loaded) + ' / ' + mb(total);
+              fillEl.style.width = (total > 0 ? (loaded / total) * 100 : 0) + '%';
+              barEl.style.display = 'block';
+            } else {
+              statusEl.textContent = text;
+              barEl.style.display = 'none';
+            }
             loadingEl.style.display = '';
           } else if (krkrzLoadingLegacy || Module.krkrzLoadingDone) {
             loadingEl.style.display = 'none';
@@ -173,6 +205,7 @@
             // wasm ロードは終わったがエンジン起動スクリプトが未完了:
             // 表示を維持してブート用テキストに切り替える
             statusEl.textContent = Module.krkrzBootText;
+            barEl.style.display = 'none';
             loadingEl.style.display = '';
           }
         };
