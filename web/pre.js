@@ -171,16 +171,36 @@ if (typeof window !== 'undefined') {
         Module.preRun = Module.preRun || [];
         Module.preRun.push(function () {
             addRunDependency('krkrz-audio-gate');
+            var released = false;
             var el = document.getElementById('loading-gate');
-            if (el) el.style.display = 'block';
-            var fire = function () {
-                window.removeEventListener('pointerdown', fire);
-                window.removeEventListener('keydown', fire);
+            var release = function () {
+                if (released) return;
+                released = true;
+                window.removeEventListener('pointerdown', release);
+                window.removeEventListener('keydown', release);
                 if (el) el.style.display = 'none';
                 removeRunDependency('krkrz-audio-gate');
             };
-            window.addEventListener('pointerdown', fire);
-            window.addEventListener('keydown', fire);
+            // 操作リスナーは最初から張っておく: ダウンロード中に先にクリック
+            // されたら (ゲート未表示のまま) 即解放し、準備完了と同時に開始する
+            // (Web Audio の許可は sticky activation = ページ内の操作 1 回で以後有効)
+            window.addEventListener('pointerdown', release);
+            window.addEventListener('keydown', release);
+            // 「クリックでスタート」は他の準備 (wasm instantiate / データ preload /
+            // resource 取込) が全て終わり、残る run dependency が本ゲートだけに
+            // なってから表示する。表示前に解放済みなら出さない
+            // (クリック後に待ちが入る「効いていないクリック」を避ける)
+            var prev = Module.monitorRunDependencies;
+            Module.monitorRunDependencies = function (left) {
+                if (prev) prev(left);
+                if (!released && left === 1) {
+                    if (el) el.style.display = 'block';
+                    var bar = document.getElementById('loading-bar');
+                    if (bar) bar.style.display = 'none';
+                    var st = document.getElementById('status');
+                    if (st) st.textContent = '準備完了';
+                }
+            };
         });
     })();
 }
