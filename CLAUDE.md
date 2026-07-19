@@ -67,10 +67,13 @@ make PROJECT_DIR=<案件> run   # 共有バイナリを案件用に stage + 起�
   (`preRun`) に MEMFS `/resource` へ fetch する (`ResourcePath=file://./resource/`)。これで
   wasm は案件非依存の共有バイナリになる。`-DKRKRZ_EMSCRIPTEN_EMBED_RESOURCE=ON` で従来の
   Bin2C 埋め込み (objres.cpp 消費) に戻せる。
-- **セーブ**: SDL が起動前に `/persist` へ IDBFS を autoPersist 付きでマウントし
-  (CMakeLists `SDL_EMSCRIPTEN_PERSISTENT_PATH=/persist` + `-lidbfs.js`)、IndexedDB からの
-  復元を待ってから main を開始する。`user://` は `/persist/<org>/<app>/` が実体で、クローズ時の
-  書き込みが自動で IndexedDB へ永続化される (エンジン/ページ側に追加コード不要)。詳細は README。
+- **セーブ**: core の自前 main() (sdl3/environ/main.cpp) が起動時に `/persist` へ IDBFS を
+  autoPersist 付きでマウントし (`KRKRZ_EMSCRIPTEN_PERSISTENT_PATH` + `-lidbfs.js`)、
+  IndexedDB からの復元を JSPI で待ってからエンジンを開始する。`user://` は
+  `/persist/<org>/<app>/` が実体で、書き込みは autoPersist が自動で IndexedDB へ永続化。
+  **注意: SDL の SDL_EMSCRIPTEN_PERSISTENT_PATH 機構は SDL_RunApp 内にあり、自前 main は
+  そこを通らないためマウントは core 側で行う** (SDL 側オプションは SDL_GetPrefPath 用に併設)。
+  詳細は README。
 
 ## devtools REPL / 自動テスト駆動
 

@@ -123,13 +123,17 @@ set(SDL_STATIC ON  CACHE BOOL "Build SDL static library")
 # SDL_CreateThread が何もせず、krkrz のスレッド起動待ちが永久ブロックする)。
 # krkrz は TimerThread 等でスレッド必須なので明示的に有効化する。
 set(SDL_PTHREADS ON CACHE BOOL "Use POSIX threads for multi-threading" FORCE)
-# セーブデータ永続化: SDL_RunApp が main 実行前にこのパスへ IDBFS を
-# autoPersist 付きでマウントし、IndexedDB からの復元完了を待ってから
-# SDL_AppInit を開始する。SDL_GetPrefPath がこの配下を返すため、
-# user:// (SDL_OpenUserStorage → generic storage backend) の書き込みは
-# 自動的に IndexedDB へ永続化される (明示的な FS.syncfs 呼び出しは不要)。
-# -lidbfs.js のリンクが前提
+# セーブデータ永続化: このパスへ IDBFS を autoPersist 付きでマウントし、
+# IndexedDB からの復元完了を待ってからエンジンを開始する。SDL_GetPrefPath が
+# この配下を返すため、user:// (SDL_OpenUserStorage → generic storage backend)
+# の書き込みは自動的に IndexedDB へ永続化される (明示的な FS.syncfs 不要)。
+# -lidbfs.js のリンクが前提。
+# 注意: SDL 側の同機構は SDL_RunApp 内にあるが、wasm は JSPI のため自前 main()
+# で SDL_AppInit を直接呼び SDL_RunApp を通らない。実際のマウント + 復元は
+# core sdl3/environ/main.cpp が KRKRZ_EMSCRIPTEN_PERSISTENT_PATH (下記) で行う。
+# SDL 側オプションは SDL_GetPrefPath の経路のために引き続き設定しておく。
 set(SDL_EMSCRIPTEN_PERSISTENT_PATH "/persist" CACHE STRING "Path to mount Emscripten IDBFS at startup" FORCE)
+add_compile_definitions("KRKRZ_EMSCRIPTEN_PERSISTENT_PATH=\"/persist\"")
 
 # ThorVG が find_package(OpenMP) を auto-detect で行うが、Emscripten では
 # FindOpenMP が試しコンパイル時の暗黙リンクライブラリ (sysroot キャッシュの

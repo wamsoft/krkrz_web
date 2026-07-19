@@ -267,11 +267,14 @@ web:// で取得したファイルは **OPFS** (Origin Private File System) に�
 ### 仕組み
 
 `user://` への書き込みはブラウザの **IndexedDB** に自動永続化される。
-チェーンは以下のとおりで、エンジン側・ページ側に追加コードは無い:
+チェーンは以下のとおり:
 
-- CMakeLists.txt で `SDL_EMSCRIPTEN_PERSISTENT_PATH=/persist` を設定
-  → SDL が起動前に `/persist` へ IDBFS を `autoPersist` 付きでマウントし、
-  IndexedDB からの復元完了を**待ってから**エンジンを開始する
+- core の自前 `main()` (sdl3/environ/main.cpp) が起動時に `/persist` へ IDBFS を
+  `autoPersist` 付きでマウントし、IndexedDB からの復元完了を**待ってから**
+  エンジンを開始する (パスは CMakeLists の `KRKRZ_EMSCRIPTEN_PERSISTENT_PATH`)。
+  ※ SDL の `SDL_EMSCRIPTEN_PERSISTENT_PATH` 機構は `SDL_RunApp` 内にあるが、
+  wasm は JSPI のため自前 main() で `SDL_RunApp` を通らない。SDL 側オプションは
+  `SDL_GetPrefPath` がこのパス配下を返すために引き続き設定している
 - `user://` (SDL_OpenUserStorage 経由) の実体は
   `/persist/<orgname>/<appname>/` 配下
 - ファイルクローズ時の一括書き込み (`SDL_WriteStorageFile`) を IDBFS の
