@@ -51,8 +51,13 @@ make PROJECT_DIR=<案件> run   # 共有バイナリを案件用に stage + 起�
   SDL_MAIN_USE_CALLBACKS ではなく **promising な自前 main() の while ループ**で駆動する
   (core sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。ビルドに -sJSPI 必須、
   実行に JSPI 対応ブラウザ (Chrome 137+) 必須。TJS API・デスクトップ挙動は不変
-- **KRKRZ_USE_MOVIE=OFF**: movie-player (libvpx) は初期スコープ外。
-  TVPCreateMoviePlayer は core 側 movie_null.cpp のスタブ (常に nullptr)。
+- **動画はブラウザネイティブ `<video>`** (KRKRZ_USE_MOVIE=OFF のままで可):
+  wasm では sources.cmake が movie_null でなく core 側 sdl3/base/WebMoviePlayer.cpp を
+  リンクする。mixer/overlay = `<video>` DOM オーバレイ (canvas に内接フィット重ね、
+  pointer-events:none で入力素通し)、layer = rVFC + offscreen canvas 読み出し→BGRA で
+  OnVideoDecoded (毎フレーム Pump)。web://,webnc:// は URL 直接ストリーミング
+  (serve.py の HTTP Range 対応が前提)、それ以外は全読み→Blob URL。
+  ステータスは既存 CheckUpdate ポーリング (play→stop) + Play 時 SetStatusAsync。
 - **描画**: 既定 `-drawdevice=sdl` (SDL_Renderer → WebGL)。OGLDrawDevice 系
   (Canvas/Texture/Shader) は GLES3 の glMapBufferRange 等を使うため
   `-sFULL_ES3` をリンクに含めてある。テクスチャ swizzle は WebGL2 非対応

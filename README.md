@@ -302,8 +302,31 @@ tjs('Debug.message("hello")')
 | 静的プラグイン | ○ csvParser / getSample / json / KAGParserEx / layerExBTOA / layerExImage / layerExRaster / saveStruct / scriptsEx / shrinkCopy / getLangName / textrender / tjsDataPack / tlgSliceLoader / psbfile / extrans / extNagano |
 | Elements ダイアログ | ○ overlay 系 + **モーダル系 (showModal*) も JSPI で動作**。要 JSPI 対応ブラウザ (Chrome 137+) |
 | セーブデータ (`user://`) | ○ IndexedDB へ自動永続化 (SDL_EMSCRIPTEN_PERSISTENT_PATH + IDBFS autoPersist)。リロード/再起動をまたいで残存することを検証済み |
-| 動画 (VideoOverlay) | × KRKRZ_USE_MOVIE=OFF (スタブ) |
+| 動画 (VideoOverlay) | ○ ブラウザネイティブ `<video>` 実装 (下記「動画再生」) |
 | コンソール REPL / DAP | × (devtools REPL で代替) |
+
+### 動画再生 (VideoOverlay)
+
+wasm ではデコーダ (libvpx 等) を移植せず、**ブラウザの `<video>` 要素**に
+デコード・音声出力・同期を任せる (core 側 `sdl3/base/WebMoviePlayer.cpp`)。
+ブラウザが再生できる形式 (webm/VP8/VP9/AV1、環境により mp4/H.264) が対象。
+
+- **mixer / overlay モード**: `<video>` を DOM オーバレイとして canvas に
+  重ねて表示 (ウィンドウ内接フィット・中央寄せ = デスクトップ SDL 実装と
+  同じ見た目)。`pointer-events: none` なので入力はエンジンに素通しされ、
+  ムービー中のクリックスキップ等がそのまま機能する。
+- **layer モード**: 非表示 `<video>` + requestVideoFrameCallback で
+  フレームを RGBA 取得し、通常のレイヤ描画に合成する (デスクトップと同じ
+  `layer1`/`layer2` API)。
+- **ソース**: `web://` / `webnc://` は URL を直接 `<video>` に渡す
+  (**ストリーミング再生**。fetch/OPFS を通らずメモリに全展開しない。
+  シークは HTTP Range — serve.py は対応済。本番サーバも Range 対応推奨)。
+  MEMFS / xp3 アーカイブ内のファイルは全読みして Blob URL で再生する
+  (大きい動画は xp3 に入れず web:// 側に置くこと)。
+- 状態遷移は `onStatusChanged("play"/"stop")` で通知される (再生終了で
+  stop)。音量は `audioVolume` が `<video>` の volume にマップされる。
+- 注意: ブラウザの autoplay ポリシーでユーザ操作前の音声付き再生は
+  拒否されることがある (その場合は次のクリック/キー入力で自動再試行)。
 
 プラグインの増減は `CMakeLists.txt` の `TVP_PLUGINS_STATIC` を編集する
 (wasm に DLL は無いので全て静的リンク)。旧 V2Link 系プラグインを追加する
