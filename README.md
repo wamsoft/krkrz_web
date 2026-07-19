@@ -124,6 +124,8 @@ python "${PROJECT_DIR}/build/web/site/serve.py"   # → http://localhost:8100/
     "-bitmappoolsize=640", "-filepoolsize=320",
     "-soundpoolsize=96",   "-krkrzpoolsize=128"
   ],
+  "lowercase": false,              // true で gamedata 配置先を ASCII 小文字化
+                                   // (serve.py を使わない case-sensitive 静的配信向け。下記「大文字小文字」)
   "assetPack": {
     "baseFolder": "${PROJECT_DIR}",  // 相対 from の基準 (既定: PROJECT_DIR)。
                                      // ${PROJECT_DIR}/${KRKRZ_BASE}/${BUILD_SYSTEM_DIR}/環境変数 を展開
@@ -184,8 +186,11 @@ web:// のリクエスト URL は **ASCII 小文字に正規化**される (auto
 - 同梱 `serve.py` (web/ + 案件 site 生成分) は実ファイル一覧との照合で解決する
   (Linux 等の case-sensitive FS でもそのまま動く)
 - Windows 系サーバ / itch.io 等の case-insensitive な配信はそのままで OK
-- 素の nginx / S3 等 case-sensitive な静的配信に置く場合は、ファイル名を
-  小文字に揃えてアップロードするか、小文字→実名の rewrite を用意すること
+- 素の nginx / S3 等 case-sensitive な静的配信に置く場合は、**ステージング時の
+  小文字化オプション**を使う: web-config.json に `"lowercase": true` (または
+  `stage_web.py --lowercase`)。gamedata の配置先パスが ASCII 小文字化され、
+  実ファイル名 = リクエスト URL になるのでサーバ側の解決が不要になる
+  (元データのファイル名は変更しない。site 側の名前だけ変わる)
 
 ## web:// キャッシュ (OPFS) のクリア
 

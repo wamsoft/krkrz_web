@@ -23,6 +23,8 @@
     "resource": "setup/nxresource", // config.cf/messages/フォント (既定: setup/nxresource)
     "port":     8100,               // 生成 serve.py の既定ポート
     "args": ["-bitmappoolsize=640"],// config.cf 優先の起動引数
+    "lowercase": false,             // true で gamedata 配置先パスを ASCII 小文字化
+                                    // (serve.py を使わない case-sensitive 静的配信向け)
 
     // ゲームデータ (web:// 配信) の構成。krkrz_android の app-config.json の
     // assetPack と同じ書式で、複数ソースを **マージ** して gamedata/ を組む。
@@ -55,6 +57,11 @@
     --data DIR      web:// 配信データを単一フォルダで上書き (assetPack より優先)
     --build-type T  Release (既定) / Debug — 共有バイナリの参照先
     --port N        生成 serve.py の既定ポート
+    --lowercase     gamedata の配置先パスを ASCII 小文字化する
+                    (web-config.json の "lowercase": true でも指定可)。
+                    リクエスト URL は常に小文字なので、同梱 serve.py を使わない
+                    case-sensitive な静的ホスティング (素の nginx / S3 等) には
+                    これを有効にして実ファイル名を一致させる
 
 出力: ${PROJECT_DIR}/build/web/site/  (この中の serve.py を実行すれば起動)
 """
@@ -65,11 +72,16 @@ import json
 import os
 import re
 import shutil
+import string
 import subprocess
 import sys
 from pathlib import Path
 
 WEB_ROOT = Path(__file__).resolve().parent.parent   # krkrz_web/
+
+# 小文字化は ASCII のみ (gen_manifest / エンジン NormKey と同一規約。
+# Python str.lower() は全角英字等まで変換してしまうため使わない)
+ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 
 # ---------------------------------------------------------------------------
@@ -159,9 +171,12 @@ def remove_dest(dest: Path) -> None:
         shutil.rmtree(dest, ignore_errors=True)
 
 
-def build_expected(sources: list, base_folder, ctx: dict, label: str) -> tuple:
+def build_expected(sources: list, base_folder, ctx: dict, label: str,
+                   lowercase: bool = False) -> tuple:
     """sources を評価し、({配置先相対パス: 元ファイル}, {prefetch 対象の配置先相対パス})
-    を返す (krkrz_android runCopyRules の 1. と同じ。重複は先勝ち。delivery も先勝ち)。"""
+    を返す (krkrz_android runCopyRules の 1. と同じ。重複は先勝ち。delivery も先勝ち)。
+    lowercase=True なら配置先パスを ASCII 小文字化する (case-sensitive な静的
+    ホスティング向け。リクエスト URL は常に小文字なので実ファイル名が一致する)。"""
     expected: dict = {}
     prefetch: set = set()
     dups: list = []
@@ -214,6 +229,8 @@ def build_expected(sources: list, base_folder, ctx: dict, label: str) -> tuple:
                 else:
                     dest_rel = f"{to_path}/{name}" if to_path else name
                 dest_rel = dest_rel.lstrip("/")
+                if lowercase:
+                    dest_rel = dest_rel.translate(ASCII_LOWER)
                 if dest_rel in expected:
                     # 重なりは仕様 (先勝ちオーバーレイ。prefetch ソース + 全体 mirror 等)。
                     # 大量に出るためまとめて報告する
@@ -231,13 +248,13 @@ def build_expected(sources: list, base_folder, ctx: dict, label: str) -> tuple:
 
 
 def run_copy_rules(sources: list, out_dir: Path, base_folder, ctx: dict,
-                   label: str, stats: dict) -> tuple:
+                   label: str, stats: dict, lowercase: bool = False) -> tuple:
     """sources を out_dir にマージ配置する (古いファイルは剪定)。
     krkrz_android runCopyRules の Python 版。転送はハードリンク自動判定。
     (expected, prefetch 対象相対パス集合) を返す。"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    expected, prefetch = build_expected(sources, base_folder, ctx, label)
+    expected, prefetch = build_expected(sources, base_folder, ctx, label, lowercase)
 
     # 期待に無い古いファイルを除去
     for root, _dirs, files in os.walk(out_dir):
@@ -496,6 +513,8 @@ def main() -> int:
     ap.add_argument("--data", default=None)
     ap.add_argument("--build-type", default="Release")
     ap.add_argument("--port", type=int, default=8100)
+    ap.add_argument("--lowercase", action="store_true",
+                    help="gamedata の配置先パスを ASCII 小文字化 (case-sensitive 静的ホスティング向け)")
     args = ap.parse_args()
 
     project_dir = Path(args.project_dir).resolve()
@@ -511,6 +530,7 @@ def main() -> int:
     default_args = " ".join(cfg.get("args", []))
     if args.port == 8100 and cfg.get("port"):
         args.port = int(cfg["port"])
+    lowercase = bool(args.lowercase or cfg.get("lowercase"))
 
     # 共有バイナリ (make build 済みが前提。cmake は呼ばない)
     krkrz_out = WEB_ROOT / "build" / "wasm32-emscripten" / args.build_type / "krkrz"
@@ -526,6 +546,8 @@ def main() -> int:
     print(f"[stage_web] resource    = {res_dir}")
     print(f"[stage_web] assetPack   = {len(ap_sources)} source(s), base={ap_base}")
     print(f"[stage_web] extra args  = {default_args or '(なし=config.cf準拠)'}")
+    if lowercase:
+        print(f"[stage_web] lowercase   = ON (gamedata の配置先パスを ASCII 小文字化)")
     if res_dir is None:
         print("[stage_web] 警告: resource が見つかりません (config.cf 無し)。"
               "engine 既定を使います。", file=sys.stderr)
@@ -575,7 +597,7 @@ def main() -> int:
         remove_dest(gamedata)
     print(f"[stage_web] gamedata を構成中 (sources マージ, ハードリンク自動判定)…")
     _expected, prefetch_rels = run_copy_rules(ap_sources, gamedata, ap_base, ctx,
-                                              "gamedata", xfer)
+                                              "gamedata", xfer, lowercase)
 
     # 5) web:// autopath マニフェスト (組み上がった gamedata から生成)
     manifest = site / "gamedata.krkrz_files.json"
@@ -591,10 +613,7 @@ def main() -> int:
     # OPFS キーを一致させるため。pre.js が起動後に fetch→OPFS 保存する。
     prefetch_file = site / "krkrz_prefetch.json"
     if prefetch_rels:
-        # 小文字化は ASCII のみ (gen_manifest / エンジン NormKey と同一規約)
-        import string as _string
-        _ascii_lower = str.maketrans(_string.ascii_uppercase, _string.ascii_lowercase)
-        plist = sorted(r.translate(_ascii_lower) for r in prefetch_rels)
+        plist = sorted(r.translate(ASCII_LOWER) for r in prefetch_rels)
         prefetch_file.write_text(
             json.dumps(plist, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8")
