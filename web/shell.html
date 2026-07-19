@@ -234,7 +234,9 @@
       },
       onRuntimeInitialized: function () {
         // データ preload 完了 = 実行開始。既定はブート表示に切替のみ
-        // (?loading=0 ならここで畳む)
+        // (?loading=0 ならここで畳む)。prefetch (pre.js) はこのフラグを
+        // 待ってから開始する (DL と帯域を取り合わないため)
+        Module.krkrzRuntimeReady = true;
         Module.setStatus('');
       },
       // 未処理スクリプト例外の表示 (pre.js の krkrzOnScriptError から呼ばれる)

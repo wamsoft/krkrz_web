@@ -106,7 +106,16 @@ if (typeof window !== 'undefined') {
         if (params.get('prefetch') === '0') return;
         var defbase = (typeof KRKRZ_WEB_DEFAULT_WEBBASE !== 'undefined') ? KRKRZ_WEB_DEFAULT_WEBBASE : '';
         var webbase = params.get('webbase') || defbase;
-        setTimeout(async function () {
+        // wasm/データのダウンロードと帯域を取り合わないよう、エンジン開始
+        // (runtime 初期化 = shell が Module.krkrzRuntimeReady を立てる) を
+        // 待ってから開始する。進捗はローディング表示のカウンタ interval が
+        // Module.krkrzPrefetch を参照して表示する
+        var waitReady = setInterval(function () {
+            if (typeof Module === 'undefined' || !Module.krkrzRuntimeReady) return;
+            clearInterval(waitReady);
+            setTimeout(runPrefetch, 1000);
+        }, 250);
+        async function runPrefetch() {
             try {
                 var resp = await fetch('krkrz_prefetch.json');
                 if (!resp.ok) return;   // リスト無し = 先読みしない案件/サンプル
@@ -141,67 +150,76 @@ if (typeof window !== 'undefined') {
                 console.log('krkrz prefetch: ' + stat.total + ' file(s), skipped='
                     + stat.skipped + ', failed=' + stat.failed);
             } catch (e) { console.warn('krkrz prefetch failed:', e); }
-        }, 5000);
+        }
     })();
 }
 
 // オーディオゲート: autoplay ポリシーで音声がブロックされる環境では、
-// エンジン (main) の開始をユーザー操作 (クリック/キー) まで保留する。
-// AudioContext はユーザー操作が入るまで suspended で、その間に鳴らした音は
-// 全て捨てられるため、起動直後のロゴ音・タイトルコール等が欠落する。
-// エンジン開始前に必ず操作を挟めば、SDL の AudioContext は最初から
-// running で開始できる。
-// - ダウンロード (wasm/データ/resource/prefetch) はゲート中も並行して進む
-//   (保留するのは main() の開始だけ)
-// - autoplay が許可されている環境 (エンゲージメント許可・kiosk 設定・
-//   --autoplay-policy 指定等) では probe で検知してゲート自体を出さない
-// - ?audiogate=0 で無効化 (従来挙動)
+// AudioContext がユーザー操作まで suspended で、その間に鳴らした音は全て
+// 捨てられる (起動直後のロゴ音・タイトルコール等が欠落する)。
+// 対策として、**起動スクリプト完了直後 (= ローディング画面が消える直前、
+// シナリオの最初の発音より前)** にクリック待ちを差し込む。core の
+// OnStartupScriptDone (wasm) が krkrzWaitBeforeStart() を JSPI で await して
+// からローディング終了フックを呼ぶので、この関数が Promise を返せばその間
+// エンジンは停止したまま。クリック → 即ゲーム開始 (待ちゼロ)。
+// - それまでのダウンロード/起動処理は全て通常どおり進む
+// - ページ内で既に操作済み (sticky activation で音声許可済み) なら待たない
+// - autoplay 許可環境 (エンゲージメント/kiosk/--autoplay-policy) も待たない
+// - ?audiogate=0 で無効化
 if (typeof window !== 'undefined') {
     (function () {
-        if (new URLSearchParams(window.location.search).get('audiogate') === '0') return;
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        var suspended = false;
+        var disabled =
+            new URLSearchParams(window.location.search).get('audiogate') === '0';
+        // ページ内操作の記録 (一度でも操作があれば音声は許可される)
+        var interacted = false;
+        var markOnce = function () {
+            interacted = true;
+            window.removeEventListener('pointerdown', markOnce);
+            window.removeEventListener('keydown', markOnce);
+        };
+        window.addEventListener('pointerdown', markOnce);
+        window.addEventListener('keydown', markOnce);
+        // autoplay 可否の probe (許可済みならゲート不要)
+        var allowed = false;
         try {
-            var probe = new AC();
-            suspended = (probe.state === 'suspended');
-            probe.close();
-        } catch (e) { return; }
-        if (!suspended) return; // autoplay 許可済み: ゲート不要
-        Module.preRun = Module.preRun || [];
-        Module.preRun.push(function () {
-            addRunDependency('krkrz-audio-gate');
-            var released = false;
-            var el = document.getElementById('loading-gate');
-            var release = function () {
-                if (released) return;
-                released = true;
-                window.removeEventListener('pointerdown', release);
-                window.removeEventListener('keydown', release);
-                if (el) el.style.display = 'none';
-                removeRunDependency('krkrz-audio-gate');
-            };
-            // 操作リスナーは最初から張っておく: ダウンロード中に先にクリック
-            // されたら (ゲート未表示のまま) 即解放し、準備完了と同時に開始する
-            // (Web Audio の許可は sticky activation = ページ内の操作 1 回で以後有効)
-            window.addEventListener('pointerdown', release);
-            window.addEventListener('keydown', release);
-            // 「クリックでスタート」は他の準備 (wasm instantiate / データ preload /
-            // resource 取込) が全て終わり、残る run dependency が本ゲートだけに
-            // なってから表示する。表示前に解放済みなら出さない
-            // (クリック後に待ちが入る「効いていないクリック」を避ける)
-            var prev = Module.monitorRunDependencies;
-            Module.monitorRunDependencies = function (left) {
-                if (prev) prev(left);
-                if (!released && left === 1) {
-                    if (el) el.style.display = 'block';
-                    var bar = document.getElementById('loading-bar');
-                    if (bar) bar.style.display = 'none';
-                    var st = document.getElementById('status');
-                    if (st) st.textContent = '準備完了';
+            var AC = window.AudioContext || window.webkitAudioContext;
+            if (AC) {
+                var probe = new AC();
+                allowed = (probe.state !== 'suspended');
+                probe.close();
+            } else {
+                allowed = true; // WebAudio 無し = ゲートの意味なし
+            }
+        } catch (e) { allowed = true; }
+
+        globalThis.krkrzWaitBeforeStart = function () {
+            if (disabled || allowed || interacted) return Promise.resolve();
+            return new Promise(function (resolve) {
+                var el = document.getElementById('loading-gate');
+                var st = document.getElementById('status');
+                var bar = document.getElementById('loading-bar');
+                var spin = document.getElementById('spinner');
+                var loading = document.getElementById('loading');
+                // ?loading=0 等でオーバーレイが畳まれていても、ゲート表示は
+                // 見える必要があるので強制的に出す
+                if (loading) {
+                    loading.classList.remove('hide');
+                    loading.style.display = '';
                 }
-            };
-        });
+                if (bar) bar.style.display = 'none';
+                if (spin) spin.style.display = 'none';
+                if (st) st.textContent = '準備完了';
+                if (el) el.style.display = 'block';
+                var fire = function () {
+                    window.removeEventListener('pointerdown', fire);
+                    window.removeEventListener('keydown', fire);
+                    if (el) el.style.display = 'none';
+                    resolve();
+                };
+                window.addEventListener('pointerdown', fire);
+                window.addEventListener('keydown', fire);
+            });
+        };
     })();
 }
 
@@ -267,7 +285,12 @@ if (typeof window !== 'undefined') {
 if (typeof window !== 'undefined') {
     (function () {
         if (new URLSearchParams(window.location.search).get('loading') === '0') {
-            globalThis.krkrzOnStartupScriptDone = function () {};
+            // 旧挙動でもオーディオゲートがオーバーレイを強制表示することが
+            // あるため、完了時には必ず畳む
+            globalThis.krkrzOnStartupScriptDone = function () {
+                var l = document.getElementById('loading');
+                if (l) l.style.display = 'none';
+            };
             return;
         }
         var counterTimer = setInterval(function () {
@@ -276,12 +299,32 @@ if (typeof window !== 'undefined') {
                 return;
             }
             var el = document.getElementById('loading-count');
+            if (!el) return;
             var n = globalThis.__krkrzWebFetchCount || 0;
             var b = globalThis.__krkrzWebFetchBytes || 0;
-            if (el && n > 0) {
-                el.textContent = '取得ファイル: ' + n
-                    + ' (' + (b / 1048576).toFixed(1) + 'MB)';
+            var txt = n > 0
+                ? '取得ファイル: ' + n + ' (' + (b / 1048576).toFixed(1) + 'MB)'
+                : '';
+            // prefetch (バックグラウンド先読み) の進捗。総数が既知なので
+            // プログレスバーも駆動する (DL フェーズ終了後 = エンジン開始後に
+            // しか prefetch は走らないためバーの取り合いは起きない)
+            var ps = (typeof Module !== 'undefined') ? Module.krkrzPrefetch : null;
+            var gateEl = document.getElementById('loading-gate');
+            var gateShown = gateEl && gateEl.style.display === 'block';
+            if (ps && ps.total > 0 && !gateShown) {
+                var bar = document.getElementById('loading-bar');
+                var fill = document.getElementById('loading-bar-fill');
+                if (ps.done < ps.total) {
+                    txt += (txt ? '　' : '') + '先読み: ' + ps.done + ' / ' + ps.total;
+                    if (bar && fill) {
+                        fill.style.width = (ps.done / ps.total) * 100 + '%';
+                        bar.style.display = 'block';
+                    }
+                } else if (bar) {
+                    bar.style.display = 'none';
+                }
             }
+            el.textContent = txt;
         }, 300);
         globalThis.krkrzOnStartupScriptDone = function () {
             clearInterval(counterTimer);
