@@ -35,6 +35,13 @@
         //       (mirror+相対→from と同じ / mirror+絶対→from の末尾フォルダ名 / flatten→ルート)。
         //       gamedata ルートに置きたいときは "to": "" を明示する。
         // include/exclude: Ant 風グロブ (**/*, *.xp3, **/*.bak)。既定 include=["**/*"]
+        // delivery: "on-demand" (既定) / "prefetch"
+        //       prefetch のソースのファイルは krkrz_prefetch.json に列挙され、
+        //       起動後に pre.js がバックグラウンドで fetch→OPFS 保存する
+        //       (初回プレイでもオンデマンド fetch がローカルヒットになる)。
+        //       同一ファイルが複数ソースに載る場合は先勝ち (delivery も先勝ち)。
+        //       動画 (VideoOverlay) は <video> の URL 直接ストリーミングで OPFS を
+        //       通らないため prefetch 対象にしないこと。
         { "type": "mirror", "from": "data", "to": "",
           "include": ["**/*"], "exclude": ["**/*.bak", "**/*.psd"] }
       ]
@@ -152,14 +159,19 @@ def remove_dest(dest: Path) -> None:
         shutil.rmtree(dest, ignore_errors=True)
 
 
-def build_expected(sources: list, base_folder, ctx: dict, label: str) -> dict:
-    """sources を評価し、{配置先相対パス: 元ファイル} の期待マップを組む
-    (krkrz_android runCopyRules の 1. と同じ。重複は先勝ち)。"""
+def build_expected(sources: list, base_folder, ctx: dict, label: str) -> tuple:
+    """sources を評価し、({配置先相対パス: 元ファイル}, {prefetch 対象の配置先相対パス})
+    を返す (krkrz_android runCopyRules の 1. と同じ。重複は先勝ち。delivery も先勝ち)。"""
     expected: dict = {}
+    prefetch: set = set()
+    dups: list = []
     for src in sources:
         typ = str(src.get("type", ""))
         if typ not in ("mirror", "flatten"):
             raise SystemExit(f"[{label}] unknown type '{typ}' (mirror/flatten)")
+        delivery = str(src.get("delivery", "on-demand"))
+        if delivery not in ("on-demand", "prefetch"):
+            raise SystemExit(f"[{label}] unknown delivery '{delivery}' (on-demand/prefetch)")
         raw_from = src.get("from")
         if not raw_from:
             raise SystemExit(f"[{label}] 'from' is required")
@@ -203,19 +215,29 @@ def build_expected(sources: list, base_folder, ctx: dict, label: str) -> dict:
                     dest_rel = f"{to_path}/{name}" if to_path else name
                 dest_rel = dest_rel.lstrip("/")
                 if dest_rel in expected:
-                    print(f"[{label}] duplicate skipped (first wins): {dest_rel}", file=sys.stderr)
+                    # 重なりは仕様 (先勝ちオーバーレイ。prefetch ソース + 全体 mirror 等)。
+                    # 大量に出るためまとめて報告する
+                    dups.append(dest_rel)
                     continue
                 expected[dest_rel] = fp
-    return expected
+                if delivery == "prefetch":
+                    prefetch.add(dest_rel)
+    if dups:
+        head = ", ".join(dups[:3])
+        more = f" ほか {len(dups) - 3} 件" if len(dups) > 3 else ""
+        print(f"[{label}] {len(dups)} duplicate(s) skipped (first wins): {head}{more}",
+              file=sys.stderr)
+    return expected, prefetch
 
 
 def run_copy_rules(sources: list, out_dir: Path, base_folder, ctx: dict,
-                   label: str, stats: dict) -> dict:
+                   label: str, stats: dict) -> tuple:
     """sources を out_dir にマージ配置する (古いファイルは剪定)。
-    krkrz_android runCopyRules の Python 版。転送はハードリンク自動判定。"""
+    krkrz_android runCopyRules の Python 版。転送はハードリンク自動判定。
+    (expected, prefetch 対象相対パス集合) を返す。"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    expected = build_expected(sources, base_folder, ctx, label)
+    expected, prefetch = build_expected(sources, base_folder, ctx, label)
 
     # 期待に無い古いファイルを除去
     for root, _dirs, files in os.walk(out_dir):
@@ -242,7 +264,7 @@ def run_copy_rules(sources: list, out_dir: Path, base_folder, ctx: dict,
                 stats["unchanged"] += 1
                 continue
         link_or_copy(src, dest, stats)
-    return expected
+    return expected, prefetch
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +433,7 @@ python serve.py            # → http://localhost:{port}/
 | resource/ + resource.list | config.cf(文字コード) / messages / フォント |
 | gamedata/ | 案件データ (web:// でオンデマンド取得) |
 | gamedata.krkrz_files.json | autopath 用ファイル一覧マニフェスト |
+| krkrz_prefetch.json | 起動後バックグラウンド先読みリスト (delivery:"prefetch" 指定時のみ) |
 
 ## 配信 (COOP/COEP 必須)
 
@@ -518,7 +541,8 @@ def main() -> int:
     if gamedata.is_symlink():
         remove_dest(gamedata)
     print(f"[stage_web] gamedata を構成中 (sources マージ, ハードリンク自動判定)…")
-    run_copy_rules(ap_sources, gamedata, ap_base, ctx, "gamedata", xfer)
+    _expected, prefetch_rels = run_copy_rules(ap_sources, gamedata, ap_base, ctx,
+                                              "gamedata", xfer)
 
     # 5) web:// autopath マニフェスト (組み上がった gamedata から生成)
     manifest = site / "gamedata.krkrz_files.json"
@@ -527,6 +551,20 @@ def main() -> int:
              str(gamedata), str(manifest)])
     else:
         manifest.write_text("[]", encoding="utf-8")
+
+    # 5b) 先読みリスト (delivery:"prefetch" ソースのファイル一覧)。
+    # パスはマニフェストと同じ正規化 (小文字・'/' 区切り) にする — エンジンの
+    # web:// アクセス (autopath 経由 = マニフェスト由来の小文字パス) と
+    # OPFS キーを一致させるため。pre.js が起動後に fetch→OPFS 保存する。
+    prefetch_file = site / "krkrz_prefetch.json"
+    if prefetch_rels:
+        plist = sorted(r.lower() for r in prefetch_rels)
+        prefetch_file.write_text(
+            json.dumps(plist, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        print(f"[stage_web] prefetch     = {len(plist)} file(s) -> krkrz_prefetch.json")
+    elif prefetch_file.exists():
+        prefetch_file.unlink()
 
     # 6) serve.py + README.md
     (site / "serve.py").write_text(SERVE_TEMPLATE.format(port=args.port), encoding="utf-8")

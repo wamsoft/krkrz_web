@@ -128,6 +128,9 @@ python "${PROJECT_DIR}/build/web/site/serve.py"   # → http://localhost:8100/
     "baseFolder": "${PROJECT_DIR}",  // 相対 from の基準 (既定: PROJECT_DIR)。
                                      // ${PROJECT_DIR}/${KRKRZ_BASE}/${BUILD_SYSTEM_DIR}/環境変数 を展開
     "sources": [
+      // 起動系フォルダは fast-follow 先読み (起動後にバックグラウンドで OPFS へ)
+      { "type": "mirror", "from": "data/main",   "to": "main",   "delivery": "prefetch" },
+      { "type": "mirror", "from": "data/system", "to": "system", "delivery": "prefetch" },
       { "type": "mirror", "from": "data", "to": "",     // type: mirror(サブツリー保持)/flatten(階層を潰す)
         "include": ["**/*"], "exclude": ["**/*.bak", "**/*.psd"] },
       // 例: 追加ソースをマージ (別フォルダ / 共通アセット / xp3 を平坦化 など)
@@ -140,6 +143,12 @@ python "${PROJECT_DIR}/build/web/site/serve.py"   # → http://localhost:8100/
 - `to` 省略時の既定は app-config と同じ: mirror+相対 → `from` と同じ / mirror+絶対 →
   `from` の末尾フォルダ名 / flatten → ルート。**gamedata ルートに置きたいときは `"to": ""`** を明示。
 - `include`/`exclude` は Ant 風グロブ (`**/*`, `*.xp3`, `**/*.bak`)。重複配置先は先勝ち。
+- `delivery`: `"on-demand"` (既定) / `"prefetch"`。prefetch のソースのファイルは
+  `krkrz_prefetch.json` に列挙され、**起動後に pre.js がバックグラウンドで fetch → OPFS
+  保存**する (同時 2 本、`?prefetch=0` で無効、進捗は `Module.krkrzPrefetch`)。以後の
+  web:// オンデマンドアクセスは初回プレイでもローカルヒットになる。同一ファイルが複数
+  ソースに載る場合は delivery も先勝ちなので、**prefetch ソースは全体 mirror より先に**書く。
+  動画は `<video>` の URL 直接ストリーミングで OPFS を通らないため prefetch 対象にしない。
 - 旧書式 (`"data": "data"`, `"exclude": [".bak", ".psd"]`) も後方互換で受ける
   (単一 mirror `to=""` に展開。拡張子指定は `**/*<ext>` に変換)。
 - `manifest` (`gamedata.krkrz_files.json`) は**組み上がった `gamedata/` から**生成されるので、

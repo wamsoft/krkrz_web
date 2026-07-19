@@ -98,6 +98,11 @@ Emscripten デフォルトは C++ 例外無効 (throw=abort) で、TJS はスク
 複数ソースを `gamedata/` にマージ、web:// オンデマンド配信) + `resource` フォルダ (charset の
 config.cf 等) + `args` (プールサイズ等)。配置はハードリンク自動判定。実体は `tools/stage_web.py`。
 
+ソースに `"delivery": "prefetch"` を付けると、そのファイル群は `krkrz_prefetch.json` に列挙され、
+起動後に pre.js がバックグラウンドで fetch → OPFS 保存する (fast-follow。初回プレイでも以後の
+web:// アクセスがローカルヒット)。重複配置先は delivery も先勝ちなので prefetch ソースは全体
+mirror より先に書く。`?prefetch=0` で無効。動画は `<video>` 直接ストリーミングなので対象外。
+
 プラグインを増やす場合のみ `TVP_PLUGINS_STATIC` を編集して共有バイナリを rebuild する
 (名前解決は krkrz_dev と同じ `TVP_PLUGIN_FOLDERS` 検索、プラグイン側 vcpkg.json も自動マージ)。
 

@@ -49,6 +49,59 @@ Module.preRun.push(function () {
     })();
 });
 
+// 起動後バックグラウンド先読み (Phase E: fast-follow)。
+// 案件サイトに krkrz_prefetch.json (stage_web.py が delivery:"prefetch" ソースから
+// 生成。gamedata 相対の小文字パス配列) があれば、起動が落ち着いた頃に
+// バックグラウンドで fetch → OPFS 保存する。以後のエンジンの web:// オンデマンド
+// アクセスは初回プレイでも OPFS ヒットになる。
+// OPFS キーはエンジン (core HttpStorageMedia の krkrz_web_fetch) と同じ規約:
+//   key = (webbase + path) の [^A-Za-z0-9._-] を '_' に置換
+// ?prefetch=0 で無効化。進捗は Module.krkrzPrefetch = {total,done,skipped,failed}。
+if (typeof window !== 'undefined') {
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('prefetch') === '0') return;
+        var defbase = (typeof KRKRZ_WEB_DEFAULT_WEBBASE !== 'undefined') ? KRKRZ_WEB_DEFAULT_WEBBASE : '';
+        var webbase = params.get('webbase') || defbase;
+        setTimeout(async function () {
+            try {
+                var resp = await fetch('krkrz_prefetch.json');
+                if (!resp.ok) return;   // リスト無し = 先読みしない案件/サンプル
+                var list = await resp.json();
+                if (!Array.isArray(list) || !list.length) return;
+                var root = await navigator.storage.getDirectory();
+                // 既存キーを一括列挙して重複 fetch を避ける
+                var have = new Set();
+                for await (var k of root.keys()) have.add(k);
+                var stat = { total: list.length, done: 0, skipped: 0, failed: 0 };
+                Module.krkrzPrefetch = stat;
+                var idx = 0;
+                async function worker() {
+                    while (idx < list.length) {
+                        var url = webbase + list[idx++];
+                        var key = url.replace(/[^A-Za-z0-9._-]/g, '_');
+                        try {
+                            if (have.has(key)) { stat.skipped++; stat.done++; continue; }
+                            var r = await fetch(url);
+                            if (!r.ok) { stat.failed++; stat.done++; continue; }
+                            var ab = await r.arrayBuffer();
+                            var wh = await root.getFileHandle(key, { create: true });
+                            var w = await wh.createWritable();
+                            await w.write(ab);
+                            await w.close();
+                        } catch (e) { stat.failed++; }
+                        stat.done++;
+                    }
+                }
+                // 同時 2 本: 起動直後のオンデマンド fetch と帯域を取り合わないよう控えめに
+                await Promise.all([worker(), worker()]);
+                console.log('krkrz prefetch: ' + stat.total + ' file(s), skipped='
+                    + stat.skipped + ', failed=' + stat.failed);
+            } catch (e) { console.warn('krkrz prefetch failed:', e); }
+        }, 5000);
+    })();
+}
+
 // 開発用: ?opfsclear で OPFS (web:// メディアの永続キャッシュ) を全消しする。
 // アセット更新時にキャッシュが古いままになるのを手動リセットするため。
 // 本番では cache busting (ファイル名/URL 変更) で更新する運用。
