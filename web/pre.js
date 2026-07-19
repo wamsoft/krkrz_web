@@ -270,13 +270,14 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// pthread ワーカープール起動の進捗表示。
-// DL バーが max になった後、PTHREAD_POOL_SIZE 個のワーカーがそれぞれ
-// krkrz.js を importScripts でロードする区間 (サーバに GET /krkrz.js が
-// 続く時間帯) が無表示だったので、「エンジン初期化中 (k / N)」として出す。
-// ワーカーのロード完了は emscripten が worker.loaded を立てるので数えられる。
-// DL 表示 (setStatus) との取り合いを避けるため、全 DL ストリーム完了
-// (Module.krkrzDlComplete) + wasm instantiate 完了後のみ表示する。
+// エンジン初期化中の表示。
+// DL バーが max になった後、pthread ワーカープール (PTHREAD_POOL_SIZE 個) が
+// それぞれ krkrz.js を importScripts でロードする区間 (サーバに GET /krkrz.js
+// が続く時間帯) は「ダウンロード中 (max)」のまま止まって見えていた。
+// ワーカー個別のロード状況は minify 済み内部プロトコル依存になり安定して
+// 取れないため、この区間は数値なしの「エンジン初期化中...」表示 (スピナー
+// 継続・バー非表示) に切り替える。DL 表示との取り合いを避けるため、
+// 全 DL ストリーム完了 (Module.krkrzDlComplete) + wasm instantiate 完了後のみ。
 if (typeof window !== 'undefined') {
     (function () {
         var workerTimer = setInterval(function () {
@@ -286,19 +287,10 @@ if (typeof window !== 'undefined') {
             }
             if (!globalThis.__krkrzWasmDone) return;
             if (typeof Module === 'undefined' || !Module.krkrzDlComplete) return;
-            if (typeof PThread === 'undefined' || !PThread.unusedWorkers) return;
-            var ws = PThread.unusedWorkers.concat(PThread.runningWorkers || []);
-            if (!ws.length) return;
-            var loaded = 0;
-            for (var i = 0; i < ws.length; i++) if (ws[i].loaded) loaded++;
             var st = document.getElementById('status');
             var bar = document.getElementById('loading-bar');
-            var fill = document.getElementById('loading-bar-fill');
-            if (st) st.textContent = 'エンジン初期化中 (' + loaded + ' / ' + ws.length + ')';
-            if (bar && fill) {
-                fill.style.width = (loaded / ws.length) * 100 + '%';
-                bar.style.display = 'block';
-            }
+            if (st) st.textContent = 'エンジン初期化中...';
+            if (bar) bar.style.display = 'none';
         }, 200);
     })();
 }
