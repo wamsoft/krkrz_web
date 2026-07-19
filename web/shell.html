@@ -209,6 +209,8 @@
               statusEl.textContent = 'ダウンロード中 ' + mb(loaded) + ' / ' + mb(total);
               fillEl.style.width = (total > 0 ? (loaded / total) * 100 : 0) + '%';
               barEl.style.display = 'block';
+              // 全ストリーム完了 → 以降はワーカープール起動進捗 (pre.js) に譲る
+              if (total > 0 && loaded >= total) Module.krkrzDlComplete = true;
             } else {
               statusEl.textContent = text;
               barEl.style.display = 'none';

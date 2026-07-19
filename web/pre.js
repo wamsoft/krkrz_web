@@ -260,6 +260,7 @@ if (typeof window !== 'undefined') {
                 }
                 var res = await WebAssembly.instantiate(buf.buffer, info);
                 receiveInstance(res.instance, res.module);
+                globalThis.__krkrzWasmDone = true; // ワーカー起動進捗表示の開始条件
             } catch (e) {
                 console.error('krkrz: wasm instantiate failed:', e);
                 if (Module.setStatus) Module.setStatus('エンジンの読み込みに失敗しました');
@@ -267,6 +268,39 @@ if (typeof window !== 'undefined') {
         })();
         return {}; // 非同期 instantiate
     };
+}
+
+// pthread ワーカープール起動の進捗表示。
+// DL バーが max になった後、PTHREAD_POOL_SIZE 個のワーカーがそれぞれ
+// krkrz.js を importScripts でロードする区間 (サーバに GET /krkrz.js が
+// 続く時間帯) が無表示だったので、「エンジン初期化中 (k / N)」として出す。
+// ワーカーのロード完了は emscripten が worker.loaded を立てるので数えられる。
+// DL 表示 (setStatus) との取り合いを避けるため、全 DL ストリーム完了
+// (Module.krkrzDlComplete) + wasm instantiate 完了後のみ表示する。
+if (typeof window !== 'undefined') {
+    (function () {
+        var workerTimer = setInterval(function () {
+            if (typeof Module !== 'undefined' && Module.krkrzRuntimeReady) {
+                clearInterval(workerTimer);
+                return;
+            }
+            if (!globalThis.__krkrzWasmDone) return;
+            if (typeof Module === 'undefined' || !Module.krkrzDlComplete) return;
+            if (typeof PThread === 'undefined' || !PThread.unusedWorkers) return;
+            var ws = PThread.unusedWorkers.concat(PThread.runningWorkers || []);
+            if (!ws.length) return;
+            var loaded = 0;
+            for (var i = 0; i < ws.length; i++) if (ws[i].loaded) loaded++;
+            var st = document.getElementById('status');
+            var bar = document.getElementById('loading-bar');
+            var fill = document.getElementById('loading-bar-fill');
+            if (st) st.textContent = 'エンジン初期化中 (' + loaded + ' / ' + ws.length + ')';
+            if (bar && fill) {
+                fill.style.width = (loaded / ws.length) * 100 + '%';
+                bar.style.display = 'block';
+            }
+        }, 200);
+    })();
 }
 
 // 起動ローディング表示 (shell の #loading) の制御。
