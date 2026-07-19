@@ -49,6 +49,48 @@ Module.preRun.push(function () {
     })();
 });
 
+// web:// OPFS キャッシュのキー規約 (エンジン core HttpStorageMedia の
+// krkrz_web_fetch と同一であること): SHA-256(url) 先頭 40hex + '_' +
+// サニタイズ済み末尾 32 文字。単純サニタイズだけの旧方式 (v1) は日本語
+// ファイル名同士が同一キーに潰れて衝突していた。
+async function krkrzOpfsKey(url) {
+    var d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url));
+    var h = Array.from(new Uint8Array(d)).map(function (b) {
+        return b.toString(16).padStart(2, '0');
+    }).join('');
+    return h.slice(0, 40) + '_' + url.replace(/[^A-Za-z0-9._-]/g, '_').slice(-32);
+}
+
+// OPFS キャッシュの版数移行: キー規約を変えたとき、旧形式のエントリは二度と
+// ヒットしないゴミになる (旧衝突キーは実害もある) ので、版数マーカーが無ければ
+// 一度だけ全クリアして張り直す。main 開始前に完了させる (エンジンの最初の
+// web:// アクセスより先)。
+Module.preRun.push(function () {
+    addRunDependency('krkrz-opfs-ver');
+    (async function () {
+        var MARKER = '.krkrz-cache-v2';
+        try {
+            var root = await navigator.storage.getDirectory();
+            var need = true;
+            try { await root.getFileHandle(MARKER); need = false; } catch (e) { /* 未移行 */ }
+            if (need) {
+                var names = [];
+                for await (var name of root.keys()) names.push(name);
+                for (var i = 0; i < names.length; i++) {
+                    try { await root.removeEntry(names[i], { recursive: true }); } catch (e) {}
+                }
+                var wh = await root.getFileHandle(MARKER, { create: true });
+                await (await wh.createWritable()).close();
+                if (names.length) {
+                    console.log('krkrz: OPFS cache cleared for key-format v2 ('
+                        + names.length + ' old entries)');
+                }
+            }
+        } catch (e) { console.warn('krkrz: OPFS cache version check failed', e); }
+        removeRunDependency('krkrz-opfs-ver');
+    })();
+});
+
 // 起動後バックグラウンド先読み (Phase E: fast-follow)。
 // 案件サイトに krkrz_prefetch.json (stage_web.py が delivery:"prefetch" ソースから
 // 生成。gamedata 相対の小文字パス配列) があれば、起動が落ち着いた頃に
@@ -56,6 +98,7 @@ Module.preRun.push(function () {
 // アクセスは初回プレイでも OPFS ヒットになる。
 // OPFS キーはエンジン (core HttpStorageMedia の krkrz_web_fetch) と同じ規約:
 //   key = (webbase + path) の [^A-Za-z0-9._-] を '_' に置換
+// OPFS キーは krkrzOpfsKey (エンジンと同一規約)。
 // ?prefetch=0 で無効化。進捗は Module.krkrzPrefetch = {total,done,skipped,failed}。
 if (typeof window !== 'undefined') {
     (function () {
@@ -79,7 +122,7 @@ if (typeof window !== 'undefined') {
                 async function worker() {
                     while (idx < list.length) {
                         var url = webbase + list[idx++];
-                        var key = url.replace(/[^A-Za-z0-9._-]/g, '_');
+                        var key = await krkrzOpfsKey(url);
                         try {
                             if (have.has(key)) { stat.skipped++; stat.done++; continue; }
                             var r = await fetch(url);
