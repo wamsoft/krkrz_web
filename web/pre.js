@@ -145,6 +145,65 @@ if (typeof window !== 'undefined') {
     })();
 }
 
+// 起動ローディング表示 (shell の #loading) の制御。
+// wasm ロード〜resource 取込〜エンジン初期化〜起動スクリプト実行完了までを
+// カバーする。完了は core (SDL3Application::OnStartupScriptDone) が EM_ASM で
+// krkrzOnStartupScriptDone() を呼んで通知する (デスクトップの splash 破棄と
+// 同じタイミング = 初回スクリプトロード完了 ≒ メイン描画開始)。
+// - resource/loading.json があれば見た目を差し替える:
+//     { "image": "loading.png",   // resource/ 内の背景画像 (contain 中央、任意)
+//       "background": "#000000",  // 背景色 (任意)
+//       "text": "Now Loading...", // 起動中テキスト (任意)
+//       "textColor": "#cccccc" }  // 文字色 (任意)
+// - 進捗: エンジンの web:// 取得数 (krkrz_web_fetch が globalThis.
+//   __krkrzWebFetchCount を加算) を「取得ファイル: N」として表示
+// - ?loading=0 で旧挙動 (wasm ロード完了で畳む。shell 側で判定)
+if (typeof window !== 'undefined') {
+    (function () {
+        if (new URLSearchParams(window.location.search).get('loading') === '0') {
+            globalThis.krkrzOnStartupScriptDone = function () {};
+            return;
+        }
+        var counterTimer = setInterval(function () {
+            if (typeof Module !== 'undefined' && Module.krkrzLoadingDone) {
+                clearInterval(counterTimer);
+                return;
+            }
+            var el = document.getElementById('loading-count');
+            var n = globalThis.__krkrzWebFetchCount || 0;
+            if (el && n > 0) el.textContent = '取得ファイル: ' + n;
+        }, 300);
+        globalThis.krkrzOnStartupScriptDone = function () {
+            clearInterval(counterTimer);
+            if (typeof Module !== 'undefined'
+                && typeof Module.krkrzHideLoading === 'function') {
+                Module.krkrzHideLoading();
+            }
+        };
+        // resource/loading.json による見た目カスタマイズ (無ければ既定のまま)
+        (async function () {
+            try {
+                var base = (typeof KRKRZ_WEB_RESOURCE_BASE !== 'undefined' && KRKRZ_WEB_RESOURCE_BASE)
+                    ? KRKRZ_WEB_RESOURCE_BASE : 'resource/';
+                var resp = await fetch(base + 'loading.json');
+                if (!resp.ok) return;
+                var conf = await resp.json();
+                var loading = document.getElementById('loading');
+                var bg = document.getElementById('loading-bg');
+                if (!loading) return;
+                if (conf.background) loading.style.background = conf.background;
+                if (conf.textColor) loading.style.color = conf.textColor;
+                if (conf.image && bg) {
+                    bg.style.backgroundImage = "url('" + encodeURI(base + conf.image) + "')";
+                }
+                if (conf.text && typeof Module !== 'undefined') {
+                    Module.krkrzBootText = conf.text;
+                }
+            } catch (e) { /* loading.json 無し = 既定表示 */ }
+        })();
+    })();
+}
+
 // 開発用: ?opfsclear で OPFS (web:// メディアの永続キャッシュ) を全消しする。
 // アセット更新時にキャッシュが古いままになるのを手動リセットするため。
 // 本番では cache busting (ファイル名/URL 変更) で更新する運用。
@@ -176,6 +235,14 @@ if (typeof window !== 'undefined') {
         } catch (e) {}
 
         console.error('krkrz script exception:\n' + message + (trace ? '\n' + trace : ''));
+
+        // 起動中のエラーならローディング表示を畳む (エラーオーバーレイを見せる)
+        try {
+            if (typeof Module !== 'undefined'
+                && typeof Module.krkrzHideLoading === 'function') {
+                Module.krkrzHideLoading();
+            }
+        } catch (e2) {}
 
         var params = new URLSearchParams(window.location.search);
         if (params.get('onerror') === 'reload') {

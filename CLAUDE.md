@@ -98,6 +98,11 @@ Emscripten デフォルトは C++ 例外無効 (throw=abort) で、TJS はスク
 複数ソースを `gamedata/` にマージ、web:// オンデマンド配信) + `resource` フォルダ (charset の
 config.cf 等) + `args` (プールサイズ等)。配置はハードリンク自動判定。実体は `tools/stage_web.py`。
 
+起動ローディング表示: ページのオーバーレイが**起動スクリプト実行完了** (core
+`OnStartupScriptDone` → JS フック `krkrzOnStartupScriptDone`) まで出続ける。案件の
+`resource/loading.json` (image/background/text/textColor) で見た目差し替え、`?loading=0` で旧挙動。
+SDL3 デスクトップの splash 破棄も同通知に一本化 (Window 生成時破棄は廃止)。
+
 ソースに `"delivery": "prefetch"` を付けると、そのファイル群は `krkrz_prefetch.json` に列挙され、
 起動後に pre.js がバックグラウンドで fetch → OPFS 保存する (fast-follow。初回プレイでも以後の
 web:// アクセスがローカルヒット)。重複配置先は delivery も先勝ちなので prefetch ソースは全体

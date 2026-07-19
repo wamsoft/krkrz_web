@@ -192,6 +192,31 @@ web:// のリクエスト URL は **ASCII 小文字に正規化**される (auto
   実ファイル名 = リクエスト URL になるのでサーバ側の解決が不要になる
   (元データのファイル名は変更しない。site 側の名前だけ変わる)
 
+## 起動ローディング表示
+
+wasm ロード → resource 取込 → エンジン初期化 → **起動スクリプト実行完了**までの間、
+ページのローディングオーバーレイ (スピナー + テキスト + web:// 取得ファイル数) を
+表示し続ける。従来はエンジン初期化以降が真っ黒で停止して見えていた区間。
+
+終了タイミングはエンジン側の**起動スクリプト完了通知**
+(core `tTVPApplication::OnStartupScriptDone` → wasm では JS フック
+`krkrzOnStartupScriptDone`)。デスクトップ SDL3 の splash 破棄も同じ通知に
+一本化されている (スクリプト完了 ≒ メイン描画開始)。
+
+`resource/loading.json` (案件 resource フォルダに置く) で見た目を差し替え可能:
+
+```jsonc
+{
+  "image": "loading.png",     // resource/ 内の背景画像 (contain 中央表示、任意)
+  "background": "#000000",    // 背景色 (任意)
+  "text": "Now Loading...",   // 起動中テキスト (任意、既定 "読み込み中...")
+  "textColor": "#cccccc"      // 文字色 (任意)
+}
+```
+
+`?loading=0` で旧挙動 (wasm ロード完了で畳む) に戻せる (デバッグ用)。
+スクリプトエラー時はエラーオーバーレイ表示と同時にローディングは閉じる。
+
 ## web:// キャッシュ (OPFS) のクリア
 
 web:// で取得したファイルは **OPFS** (Origin Private File System) に永続
