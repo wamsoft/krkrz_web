@@ -342,6 +342,31 @@ SITE_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(SITE_DIR, "gamedata.krkrz_files.json")
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else {port}
 
+def ci_resolve(path):
+    """path が存在しなければ、各パス成分を大文字小文字無視で実在名に置換して返す。
+    web:// の URL はマニフェスト由来で小文字なので、case-sensitive な FS (Linux 等)
+    でも実ファイル名を変えずに解決できるようにする (見つからなければ通常の 404)。"""
+    if os.path.exists(path):
+        return path
+    drive, rest = os.path.splitdrive(path)
+    parts = [p for p in rest.replace('\\\\', '/').split('/') if p]
+    cur = (drive + os.sep) if drive else os.sep
+    if not os.path.isabs(path):
+        cur = '.'
+    for comp in parts:
+        nxt = os.path.join(cur, comp)
+        if not os.path.exists(nxt):
+            low = comp.lower()
+            try:
+                match = next((e for e in os.listdir(cur) if e.lower() == low), None)
+            except OSError:
+                return path
+            if match is None:
+                return path
+            nxt = os.path.join(cur, match)
+        cur = nxt
+    return cur
+
 class H(SimpleHTTPRequestHandler):
     extensions_map = {{**SimpleHTTPRequestHandler.extensions_map,
                        '.wasm': 'application/wasm', '.mjs': 'text/javascript',
@@ -358,7 +383,7 @@ class H(SimpleHTTPRequestHandler):
         p = posixpath.normpath(unquote(path.split('?', 1)[0].split('#', 1)[0]))
         if p == '/gamedata/krkrz_files.json':
             return MANIFEST   # マニフェストは配信データを汚さず site 直下から返す
-        return super().translate_path(path)
+        return ci_resolve(super().translate_path(path))
     def do_GET(self):
         rh = self.headers.get('Range')
         path = self.translate_path(self.path)
@@ -440,6 +465,14 @@ python serve.py            # → http://localhost:{port}/
 SharedArrayBuffer/pthread のため、配信サーバは以下ヘッダが必須:
 `Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: require-corp`
 (同梱 `serve.py` は付与済み)。itch.io は「SharedArrayBuffer support」を有効にすれば配信可。
+
+リクエスト URL は小文字に正規化されるため、case-sensitive なサーバに置く場合は
+小文字→実ファイル名の解決が必要 (同梱 `serve.py` は対応済)。
+
+## トラブル時: キャッシュのクリア
+
+アセット更新後に古いデータが出る等の場合、URL に `?opfsclear=1` を付けて一度開くと
+web:// の永続キャッシュ (OPFS) を全消しして起動する (セーブデータは消えない)。
 
 ## 再生成 (krkrz_web 側)
 
@@ -558,7 +591,10 @@ def main() -> int:
     # OPFS キーを一致させるため。pre.js が起動後に fetch→OPFS 保存する。
     prefetch_file = site / "krkrz_prefetch.json"
     if prefetch_rels:
-        plist = sorted(r.lower() for r in prefetch_rels)
+        # 小文字化は ASCII のみ (gen_manifest / エンジン NormKey と同一規約)
+        import string as _string
+        _ascii_lower = str.maketrans(_string.ascii_uppercase, _string.ascii_lowercase)
+        plist = sorted(r.translate(_ascii_lower) for r in prefetch_rels)
         prefetch_file.write_text(
             json.dumps(plist, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8")

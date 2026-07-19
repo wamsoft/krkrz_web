@@ -174,6 +174,34 @@ Cross-Origin-Embedder-Policy: require-corp
 `web/serve.py` はこれを付けて配信する開発用サーバ。itch.io は
 「SharedArrayBuffer support」を有効にすれば配信できる。
 
+### ファイル名の大文字小文字 (case-sensitive サーバへの配信)
+
+web:// のリクエスト URL は **ASCII 小文字に正規化**される (autopath マニフェスト
+が小文字であることに加え、エンジンの URL 生成でも小文字化して OPFS キーを統一
+している)。ファイル名自体はそのままでよいが、**配信サーバは小文字リクエストを
+実ファイルへ解決できる必要がある**:
+
+- 同梱 `serve.py` (web/ + 案件 site 生成分) は実ファイル一覧との照合で解決する
+  (Linux 等の case-sensitive FS でもそのまま動く)
+- Windows 系サーバ / itch.io 等の case-insensitive な配信はそのままで OK
+- 素の nginx / S3 等 case-sensitive な静的配信に置く場合は、ファイル名を
+  小文字に揃えてアップロードするか、小文字→実名の rewrite を用意すること
+
+## web:// キャッシュ (OPFS) のクリア
+
+web:// で取得したファイルは **OPFS** (Origin Private File System) に永続
+キャッシュされる (キーは SHA-256(URL) ベース)。ETag 検証はしないので、
+アセットを更新しても古いキャッシュが使われ続ける (本番は cache busting =
+ファイル名/URL 変更で運用する)。開発中や不整合時のクリア手段:
+
+| 方法 | 効果 |
+|---|---|
+| URL に `?opfsclear=1` を付けて開く | OPFS (web:// キャッシュ) を全消しして起動。**推奨** |
+| キー形式の版数更新 (`.krkrz-cache-v2` マーカー) | 形式が変わった初回起動に一度だけ自動全クリア (操作不要) |
+| DevTools → Application → Storage → Clear site data | OPFS も消えるが **IndexedDB (セーブデータ) も消える**ので注意 |
+
+セーブデータ (`user://` = IndexedDB) は OPFS とは別領域で、`?opfsclear=1` では消えない。
+
 ## セーブデータの永続化と識別名 (リリース時の必須確認)
 
 ### 仕組み

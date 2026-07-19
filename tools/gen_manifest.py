@@ -8,13 +8,18 @@ web:// メディアがそれを参照して CheckExistentStorage / GetListAt を
 
 出力: <outfile> に、パス (小文字、'/' 区切り、先頭 './' 無し) の JSON 配列。
       TVP_AUTOPATH_IGNORECASE 前提で小文字化しておく。
+      小文字化は ASCII のみ (エンジン側 HttpStorageMedia::NormKey と同一規約。
+      Python の str.lower() は全角英字等まで変換してしまい照合がズレるため)。
 
 usage: python gen_manifest.py <srcdir> <outfile> [--exclude PAT ...]
 """
 import argparse
 import json
 import os
+import string
 import sys
+
+ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 
 def main() -> int:
@@ -31,7 +36,7 @@ def main() -> int:
         dirs.sort()
         for n in sorted(names):
             rel = os.path.relpath(os.path.join(root, n), args.srcdir)
-            rel = rel.replace("\\", "/").lower()
+            rel = rel.replace("\\", "/").translate(ASCII_LOWER)
             if excl and rel.endswith(excl):
                 continue
             # マニフェスト自身は含めない
