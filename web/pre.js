@@ -145,6 +145,52 @@ if (typeof window !== 'undefined') {
     })();
 }
 
+// krkrz.wasm のダウンロード進捗表示。
+// emscripten の setStatus 進捗はデータバンドル (krkrz.data) のみで、最も大きい
+// wasm 本体 (~10MB) は無進捗のまま落ちてくる。instantiateWasm を自前 fetch に
+// 差し替え、ReadableStream で読みながら setStatus に "(loaded/total)" を流す
+// (shell 側がプログレスバー + MB 表記に変換する)。
+// pthread ビルドでは receiveInstance に module も渡す必要がある (worker が
+// コンパイル済み module を共有で受け取るため)。
+if (typeof window !== 'undefined') {
+    Module.instantiateWasm = function (info, receiveInstance) {
+        (async function () {
+            try {
+                var resp = await fetch('krkrz.wasm');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                var total = parseInt(resp.headers.get('Content-Length') || '0', 10);
+                var reader = resp.body.getReader();
+                var chunks = [];
+                var loaded = 0;
+                for (;;) {
+                    var r = await reader.read();
+                    if (r.done) break;
+                    chunks.push(r.value);
+                    loaded += r.value.length;
+                    if (Module.setStatus) {
+                        // total 不明 (Content-Length 無し) ならサイズのみ表示 (バー無し)
+                        Module.setStatus(total > 0
+                            ? 'エンジンダウンロード中 (' + loaded + '/' + total + ')'
+                            : 'エンジンダウンロード中 ' + (loaded / 1048576).toFixed(1) + 'MB');
+                    }
+                }
+                var buf = new Uint8Array(loaded);
+                var off = 0;
+                for (var i = 0; i < chunks.length; i++) {
+                    buf.set(chunks[i], off);
+                    off += chunks[i].length;
+                }
+                var res = await WebAssembly.instantiate(buf.buffer, info);
+                receiveInstance(res.instance, res.module);
+            } catch (e) {
+                console.error('krkrz: wasm instantiate failed:', e);
+                if (Module.setStatus) Module.setStatus('エンジンの読み込みに失敗しました');
+            }
+        })();
+        return {}; // 非同期 instantiate
+    };
+}
+
 // 起動ローディング表示 (shell の #loading) の制御。
 // wasm ロード〜resource 取込〜エンジン初期化〜起動スクリプト実行完了までを
 // カバーする。完了は core (SDL3Application::OnStartupScriptDone) が EM_ASM で

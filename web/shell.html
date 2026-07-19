@@ -183,15 +183,19 @@
         var barEl = document.getElementById('loading-bar');
         var fillEl = document.getElementById('loading-bar-fill');
         var mb = function (n) { return (n / 1048576).toFixed(1) + 'MB'; };
+        // ダウンロード進捗はストリーム別 (wasm 本体 / データバンドル) に届くので
+        // ラベルごとに保持して合算表示する (2 本が並行して status を取り合い
+        // バーが行き来しないように)
+        var dlStats = {};
         return function (text) {
           if (text) {
-            // emscripten の "Downloading data... (loaded/total)" を
-            // プログレスバー + 実サイズ表記に変換する
+            // "(loaded/total)" 形式をプログレスバー + 実サイズ表記に変換する
             var m = /^(.*?)\s*\((\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)\s*$/.exec(text);
             if (m) {
-              var loaded = parseFloat(m[2]), total = parseFloat(m[3]);
-              statusEl.textContent = 'データダウンロード中 '
-                + mb(loaded) + ' / ' + mb(total);
+              dlStats[m[1]] = { l: parseFloat(m[2]), t: parseFloat(m[3]) };
+              var loaded = 0, total = 0;
+              for (var k in dlStats) { loaded += dlStats[k].l; total += dlStats[k].t; }
+              statusEl.textContent = 'ダウンロード中 ' + mb(loaded) + ' / ' + mb(total);
               fillEl.style.width = (total > 0 ? (loaded / total) * 100 : 0) + '%';
               barEl.style.display = 'block';
             } else {
