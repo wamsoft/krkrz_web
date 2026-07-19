@@ -182,7 +182,7 @@ set(CMAKE_EXECUTABLE_SUFFIX ".html")
 # 案件の config.cf / messages.json / SysInitScript.tjs / フォント一式を wasm に
 # 埋め込みたい場合に指定する。空なら core 同梱の既定リソースを使う。
 #   -DKRKRZ_WEB_RESOURCE_DIR=<案件のリソースフォルダ>
-# 例: -DKRKRZ_WEB_RESOURCE_DIR=D:/work/game/pc2_harukaze_marco_andver/setup/nxresource
+# 例: -DKRKRZ_WEB_RESOURCE_DIR=/path/to/game/setup/nxresource
 # core の KRKRZ_RESOURCE_DIR に橋渡しする (add_subdirectory の前に確定させる)。
 set(KRKRZ_WEB_RESOURCE_DIR "" CACHE PATH "埋め込みリソースフォルダ (空=core 同梱の既定)")
 if(NOT KRKRZ_WEB_RESOURCE_DIR STREQUAL "")
@@ -272,7 +272,7 @@ target_link_options(krkrz PRIVATE
     -lidbfs.js
     # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)。
     # FS はデバッグ/検証時に外部からファイル注入するため export (Module.FS)
-    -sEXPORTED_RUNTIME_METHODS=ccall,FS
+    -sEXPORTED_RUNTIME_METHODS=ccall,FS,addRunDependency,removeRunDependency
     # カスタム HTML シェル (黒背景 + canvas フィット + ローディング表示のみ。
     # emscripten 既定シェルのロゴ/チェックボックス/出力 textarea を排除)
     "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
@@ -317,35 +317,33 @@ endif()
 endif() # KRKRZ_WEB_DATA_PRELOAD
 
 # ----------------------------------------------------
-# リソース (config.cf / messages.json / フォント / SysInitScript.tjs 等) を
-# MEMFS /resource に upfront preload する。
+# リソース と webconfig は「配信サイドカー」にする (バイナリに焼かない)。
 #
-# wasm には埋め込まない (KRKRZ_EMSCRIPTEN_EMBED_RESOURCE=OFF)。エンジンは
-# ResourcePath=file://./resource/ から同期で読む (最初期の config.cf=charset も安全)。
-# バイナリはリソース非依存 = 案件横断で共有でき、案件別 charset/フォントは
-# ここで preload する resource フォルダ (KRKRZ_RESOURCE_DIR、案件では
-# KRKRZ_WEB_RESOURCE_DIR=<案件 nxresource>) だけで切り替わる。
+# これにより wasm/krkrz.data は完全に案件非依存の**共有バイナリ**になり、案件切替に
+# relink が不要。案件差分は下記の配信ファイルの差し替えだけになる:
+#   - resource/     … エンジンリソース一式 (config.cf/messages/フォント/SysInitScript)。
+#                     pre.js が preRun で MEMFS /resource へ fetch (main 前に確定)。
+#                     エンジンは ResourcePath=file://./resource/ から同期読み。
+#   - resource.list … resource/ のファイル名一覧 (JSON)。pre.js が参照。
+#   - webconfig.js  … 起動時構成 (webbase/args/resource base)。shell が krkrz.js より先に読む。
+# stage_web.py はこれらを案件版に差し替えて site を組む (cmake を一切呼ばない)。
+# make run / 既定ビルドでは engine 既定 resource + 空 webconfig を出力隣に配置する。
 # ----------------------------------------------------
-file(GLOB_RECURSE _krkrz_web_res_deps CONFIGURE_DEPENDS "${KRKRZ_RESOURCE_DIR}/*")
-target_link_options(krkrz PRIVATE
-    "SHELL:--preload-file ${KRKRZ_RESOURCE_DIR}@/resource"
-)
-set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS ${_krkrz_web_res_deps})
 
-# ビルド構成フラグ (webconfig.js)。Module.arguments は生成 JS のロード時に
-# 読み取られるため、pre.js がトップレベルで同期的に引数を組み立てられるよう
-# 構成情報を pre.js より先の --pre-js として注入する
-# 案件サイト用の既定 webbase。非空だと URL に ?webbase 等が無くても既定で
-# web:// プロジェクト起動する (stage_web.py が案件配信元 "gamedata/" を焼く)。
-set(KRKRZ_WEB_DEFAULT_WEBBASE "" CACHE STRING "default webbase for web:// project launch (empty = sample launcher)")
+# 案件サイト用の既定値 (make run 用。stage_web.py は自前で webconfig.js を書く)
+set(KRKRZ_WEB_DEFAULT_WEBBASE "" CACHE STRING "default webbase (empty = sample launcher)")
+set(KRKRZ_WEB_DEFAULT_ARGS "" CACHE STRING "default extra launch args (space-separated)")
 
-# 案件サイト用の既定起動引数 (空白区切り)。config.cf より優先される
-# コマンドライン扱いなので、wasm32 の 2GB に収めるためのプールサイズ上書き等に使う
-# (例: "-bitmappoolsize=512 -filepoolsize=256")。stage_web.py が web-config.json の
-# "args" から焼く。
-set(KRKRZ_WEB_DEFAULT_ARGS "" CACHE STRING "default extra launch args (space-separated, highest priority)")
+# resource.list (resource/ の中身一覧、JSON 配列。フラット構成前提)
+file(GLOB _krkrz_web_res_files RELATIVE "${KRKRZ_RESOURCE_DIR}" "${KRKRZ_RESOURCE_DIR}/*")
+set(_krkrz_web_res_json "")
+foreach(_f ${_krkrz_web_res_files})
+    set(_krkrz_web_res_json "${_krkrz_web_res_json}\"${_f}\",")
+endforeach()
+string(REGEX REPLACE ",$" "" _krkrz_web_res_json "${_krkrz_web_res_json}")
+file(WRITE ${CMAKE_BINARY_DIR}/resource.list "[${_krkrz_web_res_json}]")
 
-set(_krkrz_web_config_js ${CMAKE_BINARY_DIR}/webconfig.js)
+# webconfig.js (configure 時生成 → POST_BUILD で出力隣へ)
 if(KRKRZ_WEB_DATA_XP3)
     set(_krkrz_web_xp3_flag "true")
 else()
@@ -356,24 +354,39 @@ if(KRKRZ_WEB_DATA_PRELOAD)
 else()
     set(_krkrz_web_preload_flag "false")
 endif()
+set(_krkrz_web_config_js ${CMAKE_BINARY_DIR}/webconfig.js)
 file(WRITE ${_krkrz_web_config_js}
-"// 生成物 (CMakeLists.txt): ビルド構成フラグ。pre.js より先に読み込まれる
+"// 生成物 (CMakeLists.txt): 起動時構成。shell が krkrz.js より先に読む (配信ファイル)
 var KRKRZ_WEB_DATA_XP3 = ${_krkrz_web_xp3_flag};
 var KRKRZ_WEB_DATA_PRELOAD = ${_krkrz_web_preload_flag};
+var KRKRZ_WEB_RESOURCE_BASE = \"resource/\";
 var KRKRZ_WEB_DEFAULT_WEBBASE = \"${KRKRZ_WEB_DEFAULT_WEBBASE}\";
 var KRKRZ_WEB_DEFAULT_ARGS = \"${KRKRZ_WEB_DEFAULT_ARGS}\";
 ")
+
+# pre.js は焼く (汎用ロジック)。webconfig.js は焼かない (配信ファイル)。
 target_link_options(krkrz PRIVATE
-    "SHELL:--pre-js ${_krkrz_web_config_js}"
     "SHELL:--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js"
 )
-
-# pre.js / shell.html / webconfig.js 更新でリリンクさせる
 set_property(TARGET krkrz APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js
     ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
-    ${_krkrz_web_config_js}
 )
+
+# ビルド後、出力隣に resource/ ・ resource.list ・ webconfig.js を配置 (make run 用)。
+# krkrz ターゲットは core の add_subdirectory 内で作られるため add_custom_command(TARGET)
+# は使えない。ALL な custom target を krkrz に依存させて POST_BUILD 相当にする。
+add_custom_target(krkrz_web_sidecars ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:krkrz>/resource
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${KRKRZ_RESOURCE_DIR} $<TARGET_FILE_DIR:krkrz>/resource
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_BINARY_DIR}/resource.list $<TARGET_FILE_DIR:krkrz>/resource.list
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${_krkrz_web_config_js} $<TARGET_FILE_DIR:krkrz>/webconfig.js
+    COMMENT "Staging web sidecars (resource/, resource.list, webconfig.js)"
+)
+add_dependencies(krkrz_web_sidecars krkrz)
 
 # Debug ではアサーション有効
 target_link_options(krkrz PRIVATE

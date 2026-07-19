@@ -1,27 +1,53 @@
 #!/usr/bin/env python3
 """PROJECT_DIR ベースの web 版ステージング (krkrz_android の PROJECT_DIR 方式の web 版)。
 
-案件フォルダの web-config.json (無ければ慣例) を読み、その resource (charset を含む
-config.cf 等) で krkrz_web をビルドし、案件フォルダ配下 (${PROJECT_DIR}/build/web/site)
-に実行用サーバ一式を出力する。エンジンは resource 非埋め込み (共有 wasm) なので、案件
-差し替えは resource の preload (krkrz.data) 差分のみ。巨大 data は web:// でオンデマンド
-配信する (preload しない)。
+**共有バイナリ + 配信サイドカー方式**。エンジン (krkrz.html/js/wasm/data) は案件非依存の
+共有バイナリで、`make build` で一度ビルドしておけばよい。本ツールは cmake を一切呼ばず
+(relink しない)、その共有バイナリをコピーし、案件差分だけをサイドカーとして配置する:
 
-web-config.json (すべて任意。無指定は慣例で補完):
+  site/
+    index.html krkrz.js krkrz.wasm krkrz.data  … 共有バイナリ
+    webconfig.js                                … 案件の起動時構成 (webbase/args)
+    resource/ resource.list                     … 案件の config.cf/messages/フォント
+    gamedata/                                    … 案件データ (web:// 配信。sources をマージ)
+    gamedata.krkrz_files.json                    … web:// autopath マニフェスト
+    serve.py README.md                           … 実行用サーバ + 起動手順
+
+配置は **ハードリンクを自動判定**する: site と元ファイルが同一ボリュームならハードリンク
+(実体複製なし・即時)、別ボリューム等でハードリンク不可なら自動で実コピーにフォールバック
+する (ファイル単位)。手動フラグは不要。binary / resource / data すべて対象。
+
+案件フォルダの web-config.json (すべて任意。無指定は慣例で補完):
   {
-    "name":     "marco",            // 表示名 (既定: フォルダ名)
+    "name":     "mygame",           // 表示名 (既定: フォルダ名)
     "resource": "setup/nxresource", // config.cf/messages/フォント (既定: setup/nxresource)
-    "data":     "data",             // web:// 配信するゲームデータ (既定: data)
-    "exclude":  [".bak", ".psd"],   // manifest 生成の除外拡張子
-    "port":     8100                // 生成 serve.py の既定ポート
+    "port":     8100,               // 生成 serve.py の既定ポート
+    "args": ["-bitmappoolsize=640"],// config.cf 優先の起動引数
+
+    // ゲームデータ (web:// 配信) の構成。krkrz_android の app-config.json の
+    // assetPack と同じ書式で、複数ソースを **マージ** して gamedata/ を組む。
+    "assetPack": {
+      "baseFolder": "${PROJECT_DIR}",     // 相対 from の基準 (既定: PROJECT_DIR)
+      "sources": [
+        // type: "mirror" (サブツリー保持) / "flatten" (階層を潰す)
+        // from: baseFolder 相対、または絶対 (${PROJECT_DIR}/${KRKRZ_BASE}/${BUILD_SYSTEM_DIR}/環境変数 展開可)
+        // to:   配置先サブパス。省略時の既定は krkrz_android と同じ
+        //       (mirror+相対→from と同じ / mirror+絶対→from の末尾フォルダ名 / flatten→ルート)。
+        //       gamedata ルートに置きたいときは "to": "" を明示する。
+        // include/exclude: Ant 風グロブ (**/*, *.xp3, **/*.bak)。既定 include=["**/*"]
+        { "type": "mirror", "from": "data", "to": "",
+          "include": ["**/*"], "exclude": ["**/*.bak", "**/*.psd"] }
+      ]
+    }
   }
 ※ Android の app-config.json とは別ファイル (名前衝突を避けるため web-config.json)。
+※ 旧書式 ("data": "data", "exclude": [".bak", ".psd"]) も後方互換で受ける
+  (単一 mirror ソース to="" として展開。exclude は拡張子指定を **/*<ext> に変換)。
 
   usage: python stage_web.py <PROJECT_DIR> [options]
-    --data DIR        web:// 配信するゲームデータフォルダ (既定: PROJECT_DIR/data)
-    --build-type T    Release (既定) / Debug
-    --no-build        ビルドをスキップし、既存ビルド成果物をステージングだけする
-    --port N          生成する serve.py の既定ポート (既定 8100)
+    --data DIR      web:// 配信データを単一フォルダで上書き (assetPack より優先)
+    --build-type T  Release (既定) / Debug — 共有バイナリの参照先
+    --port N        生成 serve.py の既定ポート
 
 出力: ${PROJECT_DIR}/build/web/site/  (この中の serve.py を実行すれば起動)
 """
@@ -30,6 +56,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +64,190 @@ from pathlib import Path
 
 WEB_ROOT = Path(__file__).resolve().parent.parent   # krkrz_web/
 
+
+# ---------------------------------------------------------------------------
+# 変数展開 (${PROJECT_DIR} / ${KRKRZ_BASE} / ${BUILD_SYSTEM_DIR} / ${ENVVAR}) と
+# Ant 風グロブ (krkrz_android app-config と同じ書式)
+# ---------------------------------------------------------------------------
+
+def make_ctx(project_dir: Path) -> dict:
+    """変数展開のコンテキスト。krkrz_android の resolvePath と同じ 3 変数 + 環境変数。"""
+    kb = os.environ.get("KRKRZ_BASE")
+    krkrz_base = Path(kb).resolve() if kb else WEB_ROOT.parent
+    return {
+        "PROJECT_DIR": str(project_dir),
+        "KRKRZ_BASE": str(krkrz_base),
+        "BUILD_SYSTEM_DIR": str(WEB_ROOT),
+    }
+
+
+_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def expand_vars(s: str, ctx: dict) -> str:
+    def repl(m):
+        k = m.group(1)
+        if k in ctx:
+            return ctx[k]
+        return os.environ.get(k, m.group(0))
+    return _VAR_RE.sub(repl, s)
+
+
+def glob_to_regex(glob: str) -> re.Pattern:
+    """Ant 風グロブ ('/' 区切りパス) を正規表現に変換する。
+    ** = 階層跨ぎ / * = '/' 以外の 0+ / ? = '/' 以外の 1 文字。"""
+    glob = glob.replace("\\", "/")
+    out, i, n = [], 0, len(glob)
+    while i < n:
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?"); i += 3
+        elif glob.startswith("**", i):
+            out.append(".*"); i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*"); i += 1
+        elif glob[i] == "?":
+            out.append("[^/]"); i += 1
+        else:
+            out.append(re.escape(glob[i])); i += 1
+    return re.compile("^" + "".join(out) + "$")
+
+
+def compile_globs(patterns) -> list:
+    return [glob_to_regex(p) for p in patterns]
+
+
+def matches_any(rel: str, regexes: list) -> bool:
+    return any(r.match(rel) for r in regexes)
+
+
+# ---------------------------------------------------------------------------
+# 転送 (ハードリンク自動判定 + copy フォールバック)
+# ---------------------------------------------------------------------------
+
+def link_or_copy(src: Path, dest: Path, stats: dict) -> None:
+    """src を dest へ配置する。同一ボリュームなら os.link (ハードリンク=実体複製なし・
+    即時) を自動採用し、クロスボリューム等で失敗したら実コピーにフォールバックする
+    (ファイル単位で自動判定)。krkrz_android app/build.gradle の runCopyRules と同方針。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_symlink() or dest.exists():
+        dest.unlink()
+    try:
+        os.link(src, dest)
+        stats["linked"] += 1
+    except OSError:
+        shutil.copy2(src, dest)
+        stats["copied"] += 1
+
+
+def remove_dest(dest: Path) -> None:
+    """配置先の既存物を安全に除去する。junction/symlink はリンクだけ消し (target 安全)、
+    実体ディレクトリ (旧コピー/ハードリンク木) は中身ごと除去する。ハードリンクの削除は
+    別ディレクトリエントリを消すだけで source の実体は残るので rmtree で安全。"""
+    if not (dest.exists() or dest.is_symlink()):
+        return
+    try:
+        # junction / symlink / 空ディレクトリはリンクだけ消える (target 非破壊)。
+        os.rmdir(dest)
+    except OSError:
+        shutil.rmtree(dest, ignore_errors=True)
+
+
+def build_expected(sources: list, base_folder, ctx: dict, label: str) -> dict:
+    """sources を評価し、{配置先相対パス: 元ファイル} の期待マップを組む
+    (krkrz_android runCopyRules の 1. と同じ。重複は先勝ち)。"""
+    expected: dict = {}
+    for src in sources:
+        typ = str(src.get("type", ""))
+        if typ not in ("mirror", "flatten"):
+            raise SystemExit(f"[{label}] unknown type '{typ}' (mirror/flatten)")
+        raw_from = src.get("from")
+        if not raw_from:
+            raise SystemExit(f"[{label}] 'from' is required")
+        expanded_from = expand_vars(str(raw_from), ctx)
+        from_is_abs = Path(expanded_from).is_absolute()
+        if from_is_abs:
+            from_dir = Path(expanded_from)
+        elif base_folder is not None:
+            from_dir = Path(base_folder) / expanded_from
+        else:
+            raise SystemExit(f"[{label}] 'from' が相対 ('{raw_from}') だが baseFolder 未設定")
+        from_dir = from_dir.resolve()
+
+        # 既定の to (krkrz_android と同じ): mirror+相対→from / mirror+絶対→末尾名 / flatten→ルート
+        if "to" in src:
+            to_path = src["to"] or ""
+        elif typ == "mirror":
+            to_path = from_dir.name if from_is_abs else expanded_from
+        else:
+            to_path = ""
+        to_path = expand_vars(str(to_path), ctx).replace("\\", "/").strip("/")
+
+        inc = compile_globs(src.get("include", ["**/*"]))
+        exc = compile_globs(src.get("exclude", []))
+
+        if not from_dir.is_dir():
+            print(f"[{label}] source folder not found, skipped: {from_dir}", file=sys.stderr)
+            continue
+
+        for root, _dirs, files in os.walk(from_dir):
+            for name in files:
+                fp = Path(root) / name
+                rel = fp.relative_to(from_dir).as_posix()
+                if not matches_any(rel, inc):
+                    continue
+                if exc and matches_any(rel, exc):
+                    continue
+                if typ == "mirror":
+                    dest_rel = f"{to_path}/{rel}" if to_path else rel
+                else:
+                    dest_rel = f"{to_path}/{name}" if to_path else name
+                dest_rel = dest_rel.lstrip("/")
+                if dest_rel in expected:
+                    print(f"[{label}] duplicate skipped (first wins): {dest_rel}", file=sys.stderr)
+                    continue
+                expected[dest_rel] = fp
+    return expected
+
+
+def run_copy_rules(sources: list, out_dir: Path, base_folder, ctx: dict,
+                   label: str, stats: dict) -> dict:
+    """sources を out_dir にマージ配置する (古いファイルは剪定)。
+    krkrz_android runCopyRules の Python 版。転送はハードリンク自動判定。"""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    expected = build_expected(sources, base_folder, ctx, label)
+
+    # 期待に無い古いファイルを除去
+    for root, _dirs, files in os.walk(out_dir):
+        for name in files:
+            fp = Path(root) / name
+            rel = fp.relative_to(out_dir).as_posix()
+            if rel not in expected:
+                fp.unlink()
+                stats["removed"] += 1
+    # 空になったディレクトリを下から除去
+    for root, dirs, _files in os.walk(out_dir, topdown=False):
+        for d in dirs:
+            try:
+                (Path(root) / d).rmdir()
+            except OSError:
+                pass
+
+    # 変更 (サイズ / mtime) のあるファイルだけ転送
+    for dest_rel, src in expected.items():
+        dest = out_dir / dest_rel
+        if dest.exists():
+            ss, ds = src.stat(), dest.stat()
+            if ds.st_size == ss.st_size and int(ds.st_mtime) == int(ss.st_mtime):
+                stats["unchanged"] += 1
+                continue
+        link_or_copy(src, dest, stats)
+    return expected
+
+
+# ---------------------------------------------------------------------------
+# 設定ロード
+# ---------------------------------------------------------------------------
 
 def load_config(project_dir: Path) -> dict:
     cfg = project_dir / "web-config.json"
@@ -46,23 +257,42 @@ def load_config(project_dir: Path) -> dict:
     return json.loads(cfg.read_text(encoding="utf-8"))
 
 
-def resolve_resource_dir(project_dir: Path, cfg: dict) -> Path | None:
+def resolve_resource_dir(project_dir: Path, cfg: dict, ctx: dict) -> Path | None:
     """resource フォルダ (config.cf/messages.json/フォント等) を解決。
-
     web-config.json の "resource" 指定 → 慣例 (setup/nxresource) の順。
-    charset はここの config.cf (readencoding=...) で決まる。
-    """
+    charset はここの config.cf (readencoding=...) で決まる。"""
     if cfg.get("resource"):
-        p = project_dir / cfg["resource"]
+        raw = expand_vars(str(cfg["resource"]), ctx)
+        p = Path(raw)
+        if not p.is_absolute():
+            p = project_dir / raw
         if (p / "config.cf").exists():
-            return p
+            return p.resolve()
         print(f"[stage_web] 警告: 指定 resource に config.cf が無い: {p}", file=sys.stderr)
-    # fallback: 慣例のパス
     for cand in ("setup/nxresource", "setup/andspec/res"):
         p = project_dir / cand
         if (p / "config.cf").exists():
-            return p
+            return p.resolve()
     return None
+
+
+def resolve_assetpack(cfg: dict, project_dir: Path, ctx: dict, data_override):
+    """gamedata (web:// 配信) を組む (base_folder, sources) を返す。
+    優先: --data 上書き > assetPack.sources > 旧 data/exclude 書式 > 慣例 data/。"""
+    if data_override:
+        d = Path(data_override).resolve()
+        return None, [{"type": "mirror", "from": str(d), "to": "", "include": ["**/*"]}]
+    ap = cfg.get("assetPack")
+    if ap and ap.get("sources"):
+        base = ap.get("baseFolder")
+        base = Path(expand_vars(str(base), ctx)).resolve() if base else project_dir
+        return base, ap["sources"]
+    # 後方互換: data + exclude(拡張子指定) を単一 mirror(to="") に展開
+    data = cfg.get("data", "data")
+    ex = cfg.get("exclude", [".bak", ".psd"])
+    globs = [e if ("*" in e or "/" in e) else f"**/*{e}" for e in ex]
+    return project_dir, [{"type": "mirror", "from": data, "to": "",
+                          "include": ["**/*"], "exclude": globs}]
 
 
 def run(cmd, **kw):
@@ -70,19 +300,21 @@ def run(cmd, **kw):
     subprocess.check_call(cmd, **kw)
 
 
+# ---------------------------------------------------------------------------
+# 生成テンプレート
+# ---------------------------------------------------------------------------
+
 SERVE_TEMPLATE = '''\
 #!/usr/bin/env python3
 # 生成物 (stage_web.py): 案件 web サイトの実行用サーバ。
-#   - site/ 直下 (index.html / krkrz.js / krkrz.wasm / krkrz.data) を配信
-#   - /gamedata/<path> を案件データフォルダから配信 (web:// オンデマンド取得元)
-#   - /gamedata/krkrz_files.json は生成マニフェストを返す (autopath 用)
-#   - SharedArrayBuffer/pthread 用に COOP/COEP を付与
+# site/ 一式 (index.html / krkrz.* / webconfig.js / resource/ / gamedata/) を
+# COOP/COEP 付きで配信する。gamedata/krkrz_files.json は生成マニフェストを返す。
+# サイトは自己完結 (絶対パス参照なし) — このフォルダごとコピーすれば動く。
 import os, sys, posixpath
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import unquote
 
 SITE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = r"{data_dir}"
 MANIFEST = os.path.join(SITE_DIR, "gamedata.krkrz_files.json")
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else {port}
 
@@ -90,27 +322,71 @@ class H(SimpleHTTPRequestHandler):
     extensions_map = {{**SimpleHTTPRequestHandler.extensions_map,
                        '.wasm': 'application/wasm', '.mjs': 'text/javascript',
                        '.js': 'text/javascript'}}
+    def __init__(self, *a, **k):
+        super().__init__(*a, directory=SITE_DIR, **k)
     def end_headers(self):
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
     def translate_path(self, path):
-        p = unquote(path.split('?', 1)[0].split('#', 1)[0])
-        p = posixpath.normpath(p)
+        p = posixpath.normpath(unquote(path.split('?', 1)[0].split('#', 1)[0]))
         if p == '/gamedata/krkrz_files.json':
-            return MANIFEST
-        prefix = '/gamedata/'
-        if p.startswith(prefix):
-            rel = p[len(prefix):]
-            return os.path.join(DATA_DIR, *rel.split('/'))
-        # それ以外は site/ 配下
-        rel = p.lstrip('/')
-        return os.path.join(SITE_DIR, *rel.split('/'))
+            return MANIFEST   # マニフェストは配信データを汚さず site 直下から返す
+        return super().translate_path(path)
 
-print(f"serving  site={{SITE_DIR}}\\n         data={{DATA_DIR}}\\n  http://localhost:{{PORT}}/")
+print(f"serving {{SITE_DIR}}\\n  http://localhost:{{PORT}}/")
 HTTPServer(('localhost', PORT), H).serve_forever()
 '''
+
+README_TEMPLATE = '''\
+# {name} — web 版 起動手順
+
+このフォルダ (`site/`) は自己完結です。フォルダごとコピー / 別ホストへアップロードしても動きます。
+
+## 起動 (ローカル確認)
+
+```
+python serve.py            # → http://localhost:{port}/
+```
+
+ブラウザ (**Chrome / Edge**、JSPI を標準搭載する新しめの版) で
+**http://localhost:{port}/** を開くと、引数なしで案件が起動します。
+別ポートで開くなら `python serve.py 8200` のように引数指定。
+
+> Windows では一部のポート (例 8123) が予約されていて `WinError 10013` になることがあります。
+> その場合は 8080 / 8100 / 8200 など別のポートを使ってください。
+
+## 構成
+
+| ファイル | 役割 |
+|---|---|
+| index.html / krkrz.js / krkrz.wasm / krkrz.data | 共有エンジンバイナリ (案件非依存) |
+| webconfig.js | 起動時構成 (webbase / 起動引数) |
+| resource/ + resource.list | config.cf(文字コード) / messages / フォント |
+| gamedata/ | 案件データ (web:// でオンデマンド取得) |
+| gamedata.krkrz_files.json | autopath 用ファイル一覧マニフェスト |
+
+## 配信 (COOP/COEP 必須)
+
+SharedArrayBuffer/pthread のため、配信サーバは以下ヘッダが必須:
+`Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: require-corp`
+(同梱 `serve.py` は付与済み)。itch.io は「SharedArrayBuffer support」を有効にすれば配信可。
+
+## 再生成 (krkrz_web 側)
+
+このサイトは krkrz_web の共有バイナリ + この案件の `web-config.json` から生成されています。
+案件データや設定を更新したら、krkrz_web フォルダで再ステージング:
+
+```
+make PROJECT_DIR={project} run     # ステージング + ローカル起動
+make PROJECT_DIR={project} web     # ステージングのみ (site を再生成)
+```
+'''
+
+
+def js_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def main() -> int:
@@ -118,7 +394,6 @@ def main() -> int:
     ap.add_argument("project_dir")
     ap.add_argument("--data", default=None)
     ap.add_argument("--build-type", default="Release")
-    ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--port", type=int, default=8100)
     args = ap.parse_args()
 
@@ -127,86 +402,100 @@ def main() -> int:
         print(f"[stage_web] PROJECT_DIR が無い: {project_dir}", file=sys.stderr)
         return 2
 
+    ctx = make_ctx(project_dir)
     cfg = load_config(project_dir)
-    res_dir = resolve_resource_dir(project_dir, cfg)
-    if args.data:
-        data_dir = Path(args.data).resolve()
-    else:
-        data_dir = (project_dir / cfg.get("data", "data")).resolve()
+    res_dir = resolve_resource_dir(project_dir, cfg, ctx)
+    ap_base, ap_sources = resolve_assetpack(cfg, project_dir, ctx, args.data)
     name = cfg.get("name", project_dir.name)
-    excludes = cfg.get("exclude", [".bak", ".psd"])
-    # 既定起動引数 (config.cf より優先)。既定は空 = 案件 resource の config.cf
-    # 準拠。wasm32 は 2GB 上限なので、巨大プール (例 pc2 の bitmappoolsize=1280+
-    # filepoolsize=384) の案件は web-config.json の "args" で縮小指定する。
-    #   例: "args": ["-bitmappoolsize=640", "-filepoolsize=320", "-soundpoolsize=96"]
-    extra_args = cfg.get("args", [])
-    default_args = " ".join(extra_args)
+    default_args = " ".join(cfg.get("args", []))
     if args.port == 8100 and cfg.get("port"):
         args.port = int(cfg["port"])
 
+    # 共有バイナリ (make build 済みが前提。cmake は呼ばない)
+    krkrz_out = WEB_ROOT / "build" / "wasm32-emscripten" / args.build_type / "krkrz"
+    if not (krkrz_out / "krkrz.wasm").exists():
+        print(f"[stage_web] 共有バイナリが無い: {krkrz_out}\n"
+              f"  先に krkrz_web で `make prebuild build` してください。",
+              file=sys.stderr)
+        return 2
+
     print(f"[stage_web] PROJECT_DIR = {project_dir}")
     print(f"[stage_web] name        = {name}")
+    print(f"[stage_web] 共有バイナリ = {krkrz_out}")
     print(f"[stage_web] resource    = {res_dir}")
-    print(f"[stage_web] data (web://)= {data_dir}")
-    print(f"[stage_web] extra args  = {default_args}")
+    print(f"[stage_web] assetPack   = {len(ap_sources)} source(s), base={ap_base}")
+    print(f"[stage_web] extra args  = {default_args or '(なし=config.cf準拠)'}")
     if res_dir is None:
         print("[stage_web] 警告: resource が見つかりません (config.cf 無し)。"
-              "engine 既定 (UTF-8) でビルドします。", file=sys.stderr)
-    if not data_dir.is_dir():
-        print(f"[stage_web] 警告: data フォルダが無い: {data_dir}", file=sys.stderr)
+              "engine 既定を使います。", file=sys.stderr)
 
-    build_dir = WEB_ROOT / "build" / "wasm32-emscripten" / args.build_type
-    env = dict(os.environ)
-    env.setdefault("EMSDK", "D:/work/emsdk")
-
-    if not args.no_build:
-        cfg_cmd = [
-            "cmake", str(build_dir),
-            "-DKRKRZ_WEB_DATA_PRELOAD=OFF",
-            "-DKRKRZ_WEB_DEFAULT_WEBBASE=gamedata/",
-            f"-DKRKRZ_WEB_DEFAULT_ARGS={default_args}",
-        ]
-        if res_dir is not None:
-            cfg_cmd.append(f"-DKRKRZ_WEB_RESOURCE_DIR={res_dir.as_posix()}")
-        else:
-            cfg_cmd.append("-UKRKRZ_RESOURCE_DIR")
-            cfg_cmd.append("-DKRKRZ_WEB_RESOURCE_DIR=")
-        if not (build_dir / "CMakeCache.txt").exists():
-            print(f"[stage_web] {build_dir} 未構成。先に `make prebuild` してください。",
-                  file=sys.stderr)
-            return 2
-        run(cfg_cmd, env=env)
-        run(["cmake", "--build", str(build_dir)], env=env)
-
-    krkrz_out = build_dir / "krkrz"
     site = project_dir / "build" / "web" / "site"
     site.mkdir(parents=True, exist_ok=True)
 
-    # バイナリ一式をコピー (krkrz.html → index.html)
-    for f in ("krkrz.js", "krkrz.wasm", "krkrz.data"):
-        src = krkrz_out / f
-        if not src.exists():
-            print(f"[stage_web] ビルド成果物が無い: {src}", file=sys.stderr)
-            return 2
-        shutil.copy2(src, site / f)
-    shutil.copy2(krkrz_out / "krkrz.html", site / "index.html")
+    # 配置は全てハードリンク自動判定 (別ボリュームは copy に自動フォールバック)
+    xfer = {"linked": 0, "copied": 0, "unchanged": 0, "removed": 0}
 
-    # web:// autopath 用マニフェスト生成
+    # 1) 共有バイナリを配置 (krkrz.html → index.html)
+    for f in ("krkrz.js", "krkrz.wasm", "krkrz.data"):
+        link_or_copy(krkrz_out / f, site / f, xfer)
+    link_or_copy(krkrz_out / "krkrz.html", site / "index.html", xfer)
+
+    # 2) resource サイドカー (案件 resource → site/resource/ + resource.list)
+    site_res = site / "resource"
+    if site_res.exists():
+        shutil.rmtree(site_res, ignore_errors=True)
+    src_res = res_dir if res_dir is not None else (WEB_ROOT / ".." / "krkrz_dev" / "src" / "core" / "resource")
+    src_res = Path(src_res).resolve()
+    for root, _dirs, files in os.walk(src_res):
+        rel = Path(root).relative_to(src_res)
+        for nm in files:
+            link_or_copy(Path(root) / nm, site_res / rel / nm, xfer)
+    res_list = sorted(p.name for p in site_res.iterdir() if p.is_file())
+    # resource.list は resource バンドルの「目次」= resource/ の兄弟として site 直下に置く
+    # (pre.js は base 無しで fetch('resource.list') する)
+    (site / "resource.list").write_text(json.dumps(res_list, ensure_ascii=False),
+                                        encoding="utf-8")
+
+    # 3) webconfig.js サイドカー (案件の webbase/args)
+    webconfig = (
+        "// 生成物 (stage_web.py): 案件の起動時構成。shell が krkrz.js より先に読む\n"
+        "var KRKRZ_WEB_DATA_XP3 = false;\n"
+        "var KRKRZ_WEB_DATA_PRELOAD = false;\n"
+        "var KRKRZ_WEB_RESOURCE_BASE = \"resource/\";\n"
+        f"var KRKRZ_WEB_DEFAULT_WEBBASE = {js_str('gamedata/')};\n"
+        f"var KRKRZ_WEB_DEFAULT_ARGS = {js_str(default_args)};\n"
+    )
+    (site / "webconfig.js").write_text(webconfig, encoding="utf-8")
+
+    # 4) gamedata (web:// 配信元) を sources マージで組む (ハードリンク自動判定)
+    gamedata = site / "gamedata"
+    # 旧構成が junction ならまず安全に外す (rmtree で target を消さないため)
+    if gamedata.is_symlink():
+        remove_dest(gamedata)
+    print(f"[stage_web] gamedata を構成中 (sources マージ, ハードリンク自動判定)…")
+    run_copy_rules(ap_sources, gamedata, ap_base, ctx, "gamedata", xfer)
+
+    # 5) web:// autopath マニフェスト (組み上がった gamedata から生成)
     manifest = site / "gamedata.krkrz_files.json"
-    if data_dir.is_dir():
+    if gamedata.is_dir():
         run([sys.executable, str(WEB_ROOT / "tools" / "gen_manifest.py"),
-             str(data_dir), str(manifest), "--exclude", *excludes])
+             str(gamedata), str(manifest)])
     else:
         manifest.write_text("[]", encoding="utf-8")
 
-    # 実行用サーバスクリプト生成
-    serve_py = site / "serve.py"
-    serve_py.write_text(
-        SERVE_TEMPLATE.format(data_dir=str(data_dir), port=args.port),
+    # 6) serve.py + README.md
+    (site / "serve.py").write_text(SERVE_TEMPLATE.format(port=args.port), encoding="utf-8")
+    (site / "README.md").write_text(
+        README_TEMPLATE.format(name=name, port=args.port, project=str(project_dir)),
         encoding="utf-8")
 
     print(f"\n[stage_web] 完了: {site}")
-    print(f"[stage_web] 起動: python \"{serve_py}\"  →  http://localhost:{args.port}/")
+    print(f"[stage_web] 転送: {xfer['linked']} hardlink, {xfer['copied']} copy(fallback), "
+          f"{xfer['unchanged']} unchanged, {xfer['removed']} removed")
+    if xfer["copied"]:
+        print("[stage_web] 注意: 一部がコピーにフォールバックしました "
+              "(別ボリューム等でハードリンク不可)。site を data と同一ドライブに置くと軽量化されます。")
+    print(f"[stage_web] 起動: python \"{site / 'serve.py'}\"  →  http://localhost:{args.port}/")
     return 0
 
 

@@ -18,7 +18,10 @@ PORT ?= 8080
 CMAKEOPT ?=
 
 # 案件フォルダ (任意で web-config.json を持つ)。`make PROJECT_DIR=<path> web` で
-# その案件の resource/data を構成し ${PROJECT_DIR}/build/web/site へ出力する。
+# 共有バイナリ (make build 済) をコピーし、案件の resource/webconfig/gamedata を
+# サイドカー配置して ${PROJECT_DIR}/build/web/site へ出力する (cmake は呼ばない)。
+# `make PROJECT_DIR=<path> run` は build → ステージング → 生成 serve.py で起動まで一括。
+# gamedata の配置はハードリンク自動判定 (別ボリュームは copy に自動フォールバック)。
 PROJECT_DIR ?=
 
 export EMSDK
@@ -30,8 +33,9 @@ BUILD_DIR = build/$(PRESET)/$(BUILD_TYPE)
 
 all: build
 
-# 案件フォルダ (PROJECT_DIR) を web サイトとしてステージング。
-# 例: make PROJECT_DIR=/d/work/game/pc2_harukaze_marco_andver web
+# 案件フォルダ (PROJECT_DIR) を web サイトとしてステージング (共有バイナリは make build 済前提)。
+# gamedata はハードリンク自動判定で配置 (同一ドライブ=実体複製なし / 別ドライブ=copy 自動)。
+# 例: make PROJECT_DIR=/path/to/game web
 web:
 	@test -n "$(PROJECT_DIR)" || (echo "PROJECT_DIR を指定してください (make PROJECT_DIR=<path> web)"; exit 2)
 	python tools/stage_web.py "$(PROJECT_DIR)" --build-type $(BUILD_TYPE)
@@ -42,7 +46,18 @@ prebuild:
 build:
 	cmake --build $(BUILD_DIR)
 
-run: build serve
+# run:
+#   PROJECT_DIR 指定あり … 共有バイナリを build → 案件を site にステージング →
+#                          生成された serve.py で起動 (引数なし URL で案件が立ち上がる)
+#   指定なし           … サンプルランチャを build → web/serve.py で配信
+run:
+	@if [ -n "$(PROJECT_DIR)" ]; then \
+	  $(MAKE) build && \
+	  python tools/stage_web.py "$(PROJECT_DIR)" --build-type $(BUILD_TYPE) && \
+	  python "$(PROJECT_DIR)/build/web/site/serve.py" ; \
+	else \
+	  $(MAKE) build && python web/serve.py $(BUILD_DIR)/krkrz $(PORT) ; \
+	fi
 
 serve:
 	python web/serve.py $(BUILD_DIR)/krkrz $(PORT)

@@ -151,6 +151,9 @@
     });
     Module.setStatus('読み込み中...');
   </script>
+  <!-- 起動時構成 (配信サイドカー)。krkrz.js より先に読み込み、pre.js が参照する。
+       案件サイトでは stage_web.py が案件版 webconfig.js に差し替える。 -->
+  <script src="webconfig.js"></script>
   {{{ SCRIPT }}}
 </body>
 </html>

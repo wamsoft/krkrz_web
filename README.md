@@ -30,6 +30,18 @@ make serve       # サーバのみ起動
 `krkrz.html` / `krkrz.js` / `krkrz.wasm` / `krkrz.data` の 4 ファイル。
 この 4 つを COOP/COEP ヘッダ付きで配信すればそのまま動く。
 
+> **リソースは wasm に埋め込まない (共有バイナリ + 配信サイドカー)**
+> config.cf / messages.json / フォント / SysInitScript.tjs 等のエンジンリソースは
+> wasm 本体に埋め込まず、**配信ファイル (サイドカー)** として出力隣に置く:
+> `resource/` (実体) + `resource.list` (`resource/` のファイル名一覧 JSON。`resource/`
+> の兄弟として site 直下に置く)。`web/pre.js` が起動前 (`preRun`) にこれらを fetch して
+> MEMFS `/resource` に載せ、エンジンは `ResourcePath` = `file://./resource/` から同期読み
+> する (NX の `file://basepath/resource` と同型)。これにより **wasm 本体はリソース非依存
+> = 案件間で完全に共有**でき、案件差し替えは**サイドカーの差し替えだけ (relink 不要)**。
+> 文字コード (`readencoding`) も `/resource/config.cf` から起動時に読むため、案件別
+> charset は起動引数不要で切り替わる。埋め込みに戻すには
+> `-DKRKRZ_EMSCRIPTEN_EMBED_RESOURCE=ON` (core 側オプション)。
+
 ゲームデータは `-DKRKRZ_WEB_DATA_DIR=<folder>` で指定したフォルダが
 ビルド時に `tools/xp3pack.py` で **1 つの xp3 にパック**され、`/data.xp3`
 として preload される (既定は core 同梱のサンプルデータ)。エンジンは起動時に
@@ -44,8 +56,102 @@ CMAKEOPT='-DKRKRZ_WEB_DATA_DIR=/path/to/game/data' make prebuild build
 `-DKRKRZ_WEB_DATA_XP3=OFF` でフォルダ直接 preload (`/data`) に切り替わる。
 どちらの構成かは pre.js が起動時に自動判別する。
 
-起動引数は `web/pre.js` の `Module['arguments']` で指定する。
-既定は `['-drawdevice=sdl', '-drawthread=1']` (+ フォルダ構成時のみ `/data`)。
+> この節はサンプル / データ埋め込み構成 (`make run` のサンプルランチャ) の説明。
+> **実案件の配信は下記「案件ごとのステージング (PROJECT_DIR)」の web:// オンデマンド方式を推奨**する
+> (共有バイナリを relink せず、データ変更もサイドカー再配置だけで済む)。
+
+起動引数は `web/pre.js` が URL パラメータ + ビルド構成 (`webconfig.js`) から組み立て、
+`Module['arguments']` に設定する。既定は `['-drawdevice=sdl', '-drawthread=1']`。
+URL の `?webbase=` / `?webproject=1` / `?readencoding=` / `?sample=` / `?drawdevice=` を解釈し、
+案件サイト (下記 PROJECT_DIR ステージング) では `KRKRZ_WEB_DEFAULT_WEBBASE` /
+`KRKRZ_WEB_DEFAULT_ARGS` を焼き込むことで**引数なし URL で案件を直接起動**する。
+
+## 案件ごとのステージング (PROJECT_DIR)
+
+`krkrz_android` の `PROJECT_DIR` 方式の web 版。**共有バイナリ (relink 不要)** を前提に、
+案件フォルダを指定すると共有バイナリをコピー + 案件差分をサイドカー配置し、
+**案件フォルダ配下に自己完結の実行用サイトを出力**する。
+
+前提: 先に一度だけ共有バイナリをビルドしておく (`make prebuild build`。案件非依存)。
+
+```bash
+make PROJECT_DIR=/path/to/game web
+#   = python tools/stage_web.py /path/to/game
+```
+
+やること (cmake は呼ばない = relink 一切なし):
+
+1. 案件の `web-config.json` (無ければ慣例で補完) を読む
+2. 共有バイナリ (`krkrz.js` / `krkrz.wasm` / `krkrz.data`、`krkrz.html`→`index.html`) を
+   `${PROJECT_DIR}/build/web/site/` へ配置
+3. 案件差分を**サイドカー**として配置:
+   - `resource/` + `resource.list` … 案件の config.cf(charset) / messages / フォント
+   - `webconfig.js` … 起動時構成 (`webbase=gamedata/` / プールサイズ等の起動引数)
+4. **data は preload せず web:// でオンデマンド配信** (`serve.py` が `/gamedata/` で
+   案件データを配信し、autopath 用マニフェスト `krkrz_files.json` を注入する)
+
+配置は **ハードリンク自動判定**: site と元ファイルが同一ドライブならハードリンク
+(実体複製なし・即時)、別ドライブ等でハードリンク不可ならファイル単位で自動的に
+実コピーにフォールバックする (binary / resource / data すべて対象。手動フラグ不要。
+2 回目以降はサイズ+mtime 一致分をスキップする増分ステージング)。出力 site は
+自己完結 (絶対パス参照なし) なのでフォルダごとコピー / 別ホストへアップロードしても動く。
+
+**ビルド + ステージング + 起動まで一括**するなら `run`:
+
+```bash
+make PROJECT_DIR=/path/to/game run    # build → stage → 生成 serve.py で起動 (引数なし URL)
+#   → http://localhost:8100/   (web-config.json の port)
+```
+
+ステージングのみ (site を再生成するだけ) なら `make PROJECT_DIR=... web`。
+生成された `serve.py` を直接実行してもよい:
+
+```bash
+python "${PROJECT_DIR}/build/web/site/serve.py"   # → http://localhost:8100/
+```
+
+### web-config.json (すべて任意 / Android の app-config.json とは別ファイル)
+
+`assetPack.sources` は **krkrz_android の app-config.json と同じ書式**で、複数ソースを
+**マージ**して `gamedata/` (web:// 配信) を組む。
+
+```jsonc
+{
+  "name":     "mygame",            // 表示名 (既定: フォルダ名)
+  "resource": "setup/nxresource",  // config.cf/messages/フォント (既定: setup/nxresource)
+  "port":     8100,                // 生成 serve.py の既定ポート
+  "args": [                        // config.cf より優先の起動引数 (下記プール上限等)
+    "-bitmappoolsize=640", "-filepoolsize=320",
+    "-soundpoolsize=96",   "-krkrzpoolsize=128"
+  ],
+  "assetPack": {
+    "baseFolder": "${PROJECT_DIR}",  // 相対 from の基準 (既定: PROJECT_DIR)。
+                                     // ${PROJECT_DIR}/${KRKRZ_BASE}/${BUILD_SYSTEM_DIR}/環境変数 を展開
+    "sources": [
+      { "type": "mirror", "from": "data", "to": "",     // type: mirror(サブツリー保持)/flatten(階層を潰す)
+        "include": ["**/*"], "exclude": ["**/*.bak", "**/*.psd"] },
+      // 例: 追加ソースをマージ (別フォルダ / 共通アセット / xp3 を平坦化 など)
+      { "type": "flatten", "from": "archive", "include": ["*.xp3"] }
+    ]
+  }
+}
+```
+
+- `to` 省略時の既定は app-config と同じ: mirror+相対 → `from` と同じ / mirror+絶対 →
+  `from` の末尾フォルダ名 / flatten → ルート。**gamedata ルートに置きたいときは `"to": ""`** を明示。
+- `include`/`exclude` は Ant 風グロブ (`**/*`, `*.xp3`, `**/*.bak`)。重複配置先は先勝ち。
+- 旧書式 (`"data": "data"`, `"exclude": [".bak", ".psd"]`) も後方互換で受ける
+  (単一 mirror `to=""` に展開。拡張子指定は `**/*<ext>` に変換)。
+- `manifest` (`gamedata.krkrz_files.json`) は**組み上がった `gamedata/` から**生成されるので、
+  マージ / 除外の結果がそのまま autopath に反映される。
+
+> **⚠ wasm32 の 2GB 上限とメモリプール**
+> Bitmap/File/Krkrz/Sound の各プール合計が wasm32 の 2GB を超えると起動時に
+> `Aborted(OOM)` になる。既定プールは bitmap 1024 + file 512 + krkrz 256 +
+> sound 128 = 1920MB で既に限界に近く、案件 config.cf が大きめ (例えば
+> bitmap 1280 + file 384 = 合計 2048MB) だと超過する。案件の `web-config.json`
+> の `"args"` でプールサイズを縮小指定すること (コマンドラインは config.cf より
+> 優先される)。上の例 (合計 1184MB) は 2GB に余裕を残す構成。
 
 ## 配信時の注意 (COOP/COEP)
 
@@ -140,6 +246,30 @@ tjs('Scripts.evalStorage("user://./ptest.tjs").v')   // → 42 が返れば OK
 
 ## ツール
 
+### tools/stage_web.py — PROJECT_DIR ステージング
+
+上記「案件ごとのステージング」の実体。`make PROJECT_DIR=X web` から呼ばれる。
+
+```bash
+python tools/stage_web.py <PROJECT_DIR> [--data DIR] [--build-type Release] [--port N]
+```
+
+案件の `web-config.json` (無ければ慣例) を読み、**共有バイナリ (`make build` 済) をコピー +
+案件差分をサイドカー配置** (cmake は呼ばない = relink なし) して
+`${PROJECT_DIR}/build/web/site/` に site 一式 + `serve.py` + `README.md` + マニフェストを
+出力する。配置はハードリンク自動判定 (別ドライブは copy に自動フォールバック)。
+`--data DIR` で `assetPack` を無視して単一フォルダ配信に上書きできる (簡易テスト用)。
+
+### tools/gen_manifest.py — web:// autopath マニフェスト生成
+
+```bash
+python tools/gen_manifest.py <srcdir> <outfile> [--exclude .bak .psd]
+```
+
+サーバ上のバラファイルはディレクトリ列挙ができないため、`web://` メディアの
+`GetListAt` / `CheckExistentStorage` はこのマニフェスト (小文字・'/' 区切りの
+パス配列 JSON) を参照する。`stage_web.py` が内部で呼ぶ。
+
 ### tools/xp3pack.py — 簡易 XP3 アーカイバ
 
 ```bash
@@ -169,7 +299,7 @@ tjs('Debug.message("hello")')
 | 描画 (SDLDrawDevice → WebGL) | ○ 既定。`-sFULL_ES3` リンク済で OGL 系も試験可 |
 | スレッド (Timer/サウンド/画像ロード) | ○ pthread + SharedArrayBuffer |
 | TJS 例外 | ○ `-fwasm-exceptions` (必須。外すと TJS エラーで即 abort) |
-| 静的プラグイン | ○ csvParser / extNagano / extrans / json / KAGParserEx / saveStruct / scriptsEx |
+| 静的プラグイン | ○ csvParser / getSample / json / KAGParserEx / layerExBTOA / layerExImage / layerExRaster / saveStruct / scriptsEx / shrinkCopy / getLangName / textrender / tjsDataPack / tlgSliceLoader / psbfile / extrans / extNagano |
 | Elements ダイアログ | ○ overlay 系 + **モーダル系 (showModal*) も JSPI で動作**。要 JSPI 対応ブラウザ (Chrome 137+) |
 | セーブデータ (`user://`) | ○ IndexedDB へ自動永続化 (SDL_EMSCRIPTEN_PERSISTENT_PATH + IDBFS autoPersist)。リロード/再起動をまたいで残存することを検証済み |
 | 動画 (VideoOverlay) | × KRKRZ_USE_MOVIE=OFF (スタブ) |

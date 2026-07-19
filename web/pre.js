@@ -18,6 +18,37 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// リソースを preRun で MEMFS /resource へ fetch する (配信サイドカー方式)。
+// resource/ (config.cf/messages/フォント/SysInitScript) は wasm に焼かず配信ファイルに
+// してあるので、main 実行前にここで取り込む。addRunDependency で main を待たせるため、
+// 最初期の config.cf 読み (charset 決定) も安全。エンジンは file://./resource/ で同期読み。
+// KRKRZ_WEB_RESOURCE_BASE は webconfig.js (shell が先に読む配信ファイル) が定義する。
+Module = (typeof Module !== 'undefined') ? Module : {};
+Module.preRun = Module.preRun || [];
+Module.preRun.push(function () {
+    var base = (typeof KRKRZ_WEB_RESOURCE_BASE !== 'undefined' && KRKRZ_WEB_RESOURCE_BASE)
+        ? KRKRZ_WEB_RESOURCE_BASE : 'resource/';
+    addRunDependency('krkrz-resource');
+    (async function () {
+        try {
+            // resource.list は resource バンドルの「目次」で、バンドルのメンバーでは
+            // なく site 直下 (resource/ の兄弟) に置かれる。個々のリソースファイルだけ
+            // base (resource/) 配下から取得する。
+            var list = await (await fetch('resource.list')).json();
+            try { FS.mkdir('/resource'); } catch (e) { /* 既存 */ }
+            for (var i = 0; i < list.length; i++) {
+                var resp = await fetch(base + list[i]);
+                if (!resp.ok) { console.error('krkrz resource 404:', base + list[i]); continue; }
+                var buf = new Uint8Array(await resp.arrayBuffer());
+                FS.writeFile('/resource/' + list[i], buf);
+            }
+        } catch (e) {
+            console.error('krkrz resource load failed:', e);
+        }
+        removeRunDependency('krkrz-resource');
+    })();
+});
+
 // 開発用: ?opfsclear で OPFS (web:// メディアの永続キャッシュ) を全消しする。
 // アセット更新時にキャッシュが古いままになるのを手動リセットするため。
 // 本番では cache busting (ファイル名/URL 変更) で更新する運用。
