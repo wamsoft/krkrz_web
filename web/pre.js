@@ -145,6 +145,46 @@ if (typeof window !== 'undefined') {
     })();
 }
 
+// オーディオゲート: autoplay ポリシーで音声がブロックされる環境では、
+// エンジン (main) の開始をユーザー操作 (クリック/キー) まで保留する。
+// AudioContext はユーザー操作が入るまで suspended で、その間に鳴らした音は
+// 全て捨てられるため、起動直後のロゴ音・タイトルコール等が欠落する。
+// エンジン開始前に必ず操作を挟めば、SDL の AudioContext は最初から
+// running で開始できる。
+// - ダウンロード (wasm/データ/resource/prefetch) はゲート中も並行して進む
+//   (保留するのは main() の開始だけ)
+// - autoplay が許可されている環境 (エンゲージメント許可・kiosk 設定・
+//   --autoplay-policy 指定等) では probe で検知してゲート自体を出さない
+// - ?audiogate=0 で無効化 (従来挙動)
+if (typeof window !== 'undefined') {
+    (function () {
+        if (new URLSearchParams(window.location.search).get('audiogate') === '0') return;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        var suspended = false;
+        try {
+            var probe = new AC();
+            suspended = (probe.state === 'suspended');
+            probe.close();
+        } catch (e) { return; }
+        if (!suspended) return; // autoplay 許可済み: ゲート不要
+        Module.preRun = Module.preRun || [];
+        Module.preRun.push(function () {
+            addRunDependency('krkrz-audio-gate');
+            var el = document.getElementById('loading-gate');
+            if (el) el.style.display = 'block';
+            var fire = function () {
+                window.removeEventListener('pointerdown', fire);
+                window.removeEventListener('keydown', fire);
+                if (el) el.style.display = 'none';
+                removeRunDependency('krkrz-audio-gate');
+            };
+            window.addEventListener('pointerdown', fire);
+            window.addEventListener('keydown', fire);
+        });
+    })();
+}
+
 // krkrz.wasm のダウンロード進捗表示。
 // emscripten の setStatus 進捗はデータバンドル (krkrz.data) のみで、最も大きい
 // wasm 本体 (~10MB) は無進捗のまま落ちてくる。instantiateWasm を自前 fetch に

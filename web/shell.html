@@ -75,6 +75,16 @@
     opacity: 0.7;
     min-height: 1em;
   }
+  /* autoplay ブロック時のスタート待ち表示 (pre.js の audio gate が制御) */
+  #loading-gate {
+    display: none;
+    font-size: 16px;
+    animation: krkrz-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes krkrz-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
   /* ダウンロード進捗バー (wasm データ取得中のみ表示) */
   #loading-bar {
     width: 260px;
@@ -150,6 +160,7 @@
       <div id="status">読み込み中...</div>
       <div id="loading-bar"><div id="loading-bar-fill"></div></div>
       <div id="loading-count"></div>
+      <div id="loading-gate">クリック / タップでスタート</div>
     </div>
   </div>
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
