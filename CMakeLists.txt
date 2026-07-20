@@ -55,6 +55,7 @@ LIST(APPEND TVP_PLUGINS_STATIC
   layerExBTOA
   layerExImage
   layerExRaster
+  layerExVector
   saveStruct
   scriptsEx
   shrinkCopy
