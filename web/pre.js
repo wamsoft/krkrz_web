@@ -503,8 +503,23 @@ if (typeof window !== 'undefined') {
 // 注意: Module.arguments は生成 JS のロード時に取り込まれるため、preRun 等の
 // 遅延コールバックではなくトップレベルで同期的に確定させること。
 (function () {
-    // ?drawdevice=sdl|ogl|sdlogl で描画デバイスを切替可能 (検証用)。既定 sdl
-    var dd = 'sdl';
+    // ?drawdevice=sdl|ogl|sdlogl で描画デバイスを切替可能。既定 ogl。
+    // web を ogl (OGLDrawDevice) 既定にする理由:
+    //   SDLDrawDevice (SDL_Renderer) を既定にすると、GL を使う画面 (Canvas/Texture
+    //   の OGLDrawDevice) との間で DrawDevice を切り替えるたびに、同一 canvas 上の
+    //   唯一の WebGL コンテキストの取り合いが起きる。切替時に SDL_Renderer を作り
+    //   直すと GL backend を再取得できず software にフォールバックして画面が固まり、
+    //   逆に旧 GL コンテキストを SDL_GL_DestroyContext で破棄すると emscripten では
+    //   ハングする。OGLDrawDevice で統一すれば SDL_Renderer を使わず単一 GL
+    //   コンテキストを破棄せず使い回すだけになり、この問題が起きない。
+    //   (2D 描画も OGLDrawDevice で正常。従来挙動は ?drawdevice=sdl で選択可)
+    // 【将来検討】この回避は「OGLDrawDevice 側で GL コンテキストを破棄しない
+    //   (SDL3GLContext::Release が no-op)」に暗黙依存している。本来は GL
+    //   コンテキストをアプリが1個所有し各 DrawDevice はそれを借りるだけ、という
+    //   構造 (SDLDrawDevice も含めた全面改修) にするのが望ましい。emscripten では
+    //   セッション途中の SDL_GL_DestroyContext がハングするため、その改修時も
+    //   「破棄しない」を守ること。
+    var dd = 'ogl';
     if (typeof window !== 'undefined') {
         var d = new URLSearchParams(window.location.search).get('drawdevice');
         if (d && /^[a-z]+$/.test(d)) dd = d;
