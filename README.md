@@ -236,7 +236,7 @@ wasm ロード → resource 取込 → エンジン初期化 → **起動スク�
 対策として、autoplay ブロックを起動時に probe で検知した場合のみ、
 **起動スクリプト完了直後 (= ローディング画面が消える直前、最初の発音より前)**
 に「クリック / タップでスタート」を差し込む (core の `OnStartupScriptDone` が
-`krkrzWaitBeforeStart()` を JSPI で await する):
+`krkrzWaitBeforeStart()` を非同期 suspend で await する):
 
 - ダウンロード〜起動処理は全て通常どおり進み、**完了してから**「準備完了 +
   クリック / タップでスタート」になる。クリック → 即ゲーム開始 (待ちゼロ)
@@ -273,7 +273,7 @@ web:// で取得したファイルは **OPFS** (Origin Private File System) に�
   `autoPersist` 付きでマウントし、IndexedDB からの復元完了を**待ってから**
   エンジンを開始する (パスは CMakeLists の `KRKRZ_EMSCRIPTEN_PERSISTENT_PATH`)。
   ※ SDL の `SDL_EMSCRIPTEN_PERSISTENT_PATH` 機構は `SDL_RunApp` 内にあるが、
-  wasm は JSPI のため自前 main() で `SDL_RunApp` を通らない。SDL 側オプションは
+  wasm は非同期 suspend のため自前 main() で `SDL_RunApp` を通らない。SDL 側オプションは
   `SDL_GetPrefPath` がこのパス配下を返すために引き続き設定している
 - `user://` (SDL_OpenUserStorage 経由) の実体は
   `/persist/<orgname>/<appname>/` 配下
@@ -400,7 +400,7 @@ tjs('Debug.message("hello")')
 | スレッド (Timer/サウンド/画像ロード) | ○ pthread + SharedArrayBuffer |
 | TJS 例外 | ○ `-fwasm-exceptions` (必須。外すと TJS エラーで即 abort) |
 | 静的プラグイン | ○ csvParser / getSample / json / KAGParserEx / layerExBTOA / layerExImage / layerExRaster / saveStruct / scriptsEx / shrinkCopy / getLangName / textrender / tjsDataPack / tlgSliceLoader / psbfile / extrans / extNagano |
-| Elements ダイアログ | ○ overlay 系 + **モーダル系 (showModal*) も JSPI で動作**。要 JSPI 対応ブラウザ (Chrome 137+) |
+| Elements ダイアログ | ○ overlay 系 + **モーダル系 (showModal*) も動作**。既定 Asyncify で全ブラウザ対応 (`-DKRKRZ_WEB_ASYNC_BACKEND=JSPI` で JSPI 版=Chrome/Edge 137+ 限定) |
 | セーブデータ (`user://`) | ○ IndexedDB へ自動永続化 (SDL_EMSCRIPTEN_PERSISTENT_PATH + IDBFS autoPersist)。リロード/再起動をまたいで残存することを検証済み |
 | 動画 (VideoOverlay) | ○ ブラウザネイティブ `<video>` 実装 (下記「動画再生」) |
 | コンソール REPL / DAP | × (devtools REPL で代替) |

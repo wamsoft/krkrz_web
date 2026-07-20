@@ -45,12 +45,15 @@ make PROJECT_DIR=<案件> run   # 共有バイナリを案件用に stage + 起�
   「スレッド生成をメインスレッドが待つ」箇所 (tTVPThread::StartThread) が
   デッドロックしないためのワーカ事前確保で、**削ると起動時にハングする**。
 - **プラグインは全静的リンク** (`TVP_PLUGINS_STATIC`)。wasm に SDL_LoadObject は無い。
-- **Elements モーダルは JSPI で対応**: モーダルの同期待機ループ (PumpModalLoop) の
-  SDL_Delay を wasm では JSPI (requestAnimationFrame await) に置換し、メインスレッドを
-  ブロックせず次フレームまで suspend する。これを成立させるため wasm では
-  SDL_MAIN_USE_CALLBACKS ではなく **promising な自前 main() の while ループ**で駆動する
-  (core sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。ビルドに -sJSPI 必須、
-  実行に JSPI 対応ブラウザ (Chrome 137+) 必須。TJS API・デスクトップ挙動は不変
+- **Elements モーダルは非同期 suspend で対応**: モーダルの同期待機ループ (PumpModalLoop)
+  の SDL_Delay を wasm では requestAnimationFrame await (EM_ASYNC_JS) に置換し、メイン
+  スレッドをブロックせず次フレームまで suspend する。これを成立させるため wasm では
+  SDL_MAIN_USE_CALLBACKS ではなく **自前 main() の while ループ**で駆動する
+  (core sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。suspend バックエンドは
+  `KRKRZ_WEB_ASYNC_BACKEND` で選択: **既定 `ASYNCIFY` (全ブラウザ動作)**、
+  `-DKRKRZ_WEB_ASYNC_BACKEND=JSPI` で JSPI (軽量/高速だが Chrome/Edge 137+ のみ既定有効。
+  Firefox は about:config フラグ裏、Safari 未実装)。EM_ASYNC_JS はバックエンド非依存な
+  ので core 側 C++ はどちらでも無改修。TJS API・デスクトップ挙動は不変
 - **動画はブラウザネイティブ `<video>`** (KRKRZ_USE_MOVIE=OFF のままで可):
   wasm では sources.cmake が movie_null でなく core 側 sdl3/base/WebMoviePlayer.cpp を
   リンクする。mixer/overlay = `<video>` DOM オーバレイ (canvas に内接フィット重ね、
@@ -69,7 +72,7 @@ make PROJECT_DIR=<案件> run   # 共有バイナリを案件用に stage + 起�
   Bin2C 埋め込み (objres.cpp 消費) に戻せる。
 - **セーブ**: core の自前 main() (sdl3/environ/main.cpp) が起動時に `/persist` へ IDBFS を
   autoPersist 付きでマウントし (`KRKRZ_EMSCRIPTEN_PERSISTENT_PATH` + `-lidbfs.js`)、
-  IndexedDB からの復元を JSPI で待ってからエンジンを開始する。`user://` は
+  IndexedDB からの復元を非同期 suspend で待ってからエンジンを開始する。`user://` は
   `/persist/<org>/<app>/` が実体で、書き込みは autoPersist が自動で IndexedDB へ永続化。
   **注意: SDL の SDL_EMSCRIPTEN_PERSISTENT_PATH 機構は SDL_RunApp 内にあり、自前 main は
   そこを通らないためマウントは core 側で行う** (SDL 側オプションは SDL_GetPrefPath 用に併設)。

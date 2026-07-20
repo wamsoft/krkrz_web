@@ -129,8 +129,8 @@ set(SDL_PTHREADS ON CACHE BOOL "Use POSIX threads for multi-threading" FORCE)
 # この配下を返すため、user:// (SDL_OpenUserStorage → generic storage backend)
 # の書き込みは自動的に IndexedDB へ永続化される (明示的な FS.syncfs 不要)。
 # -lidbfs.js のリンクが前提。
-# 注意: SDL 側の同機構は SDL_RunApp 内にあるが、wasm は JSPI のため自前 main()
-# で SDL_AppInit を直接呼び SDL_RunApp を通らない。実際のマウント + 復元は
+# 注意: SDL 側の同機構は SDL_RunApp 内にあるが、wasm は非同期 suspend (Asyncify)
+# のため自前 main() で SDL_AppInit を直接呼び SDL_RunApp を通らない。実際のマウント + 復元は
 # core sdl3/environ/main.cpp が KRKRZ_EMSCRIPTEN_PERSISTENT_PATH (下記) で行う。
 # SDL 側オプションは SDL_GetPrefPath の経路のために引き続き設定しておく。
 set(SDL_EMSCRIPTEN_PERSISTENT_PATH "/persist" CACHE STRING "Path to mount Emscripten IDBFS at startup" FORCE)
@@ -246,6 +246,40 @@ endif()
 option(KRKRZ_WEB_DATA_XP3 "pack game data into a single xp3 (release-like layout)" ON)
 
 # ----------------------------------------------------
+# 非同期 suspend バックエンドの選択 (Asyncify / JSPI)
+# ----------------------------------------------------
+# Elements モーダルダイアログの同期待機ループ (PumpModalLoop) や毎フレームの yield
+# (EM_ASYNC_JS krkrz_jspi_wait_frame) が、メインスレッドをブロックせず次フレームまで
+# suspend できるようにする機構。wasm メインループは SDL_MAIN_USE_CALLBACKS ではなく
+# 自前 main() の while で SDL_AppInit/AppIterate を駆動する
+# (sdl3/environ/main.cpp の __EMSCRIPTEN__)。EM_ASYNC_JS はバックエンド非依存なので
+# どちらを選んでも core 側 C++ は無改修。
+#
+#   ASYNCIFY (既定) … wasm を計装して suspend。全ブラウザで動作。代償は wasm 肥大化と
+#                     やや低速化 (Chrome も Asyncify 経路)。将来 -sASYNCIFY_ONLY で削減可。
+#   JSPI            … ブラウザのネイティブスタック切替で suspend。軽量・高速だが
+#                     Chrome/Edge 137+ でのみ既定有効。Firefox は about:config フラグ裏
+#                     (javascript.options.wasm_js_promise_integration)、Safari は未実装。
+#
+# 切替: cmake ... -DKRKRZ_WEB_ASYNC_BACKEND=JSPI
+set(KRKRZ_WEB_ASYNC_BACKEND "ASYNCIFY" CACHE STRING
+    "async suspend backend: ASYNCIFY (all browsers) or JSPI (Chrome/Edge 137+ only, smaller/faster)")
+set_property(CACHE KRKRZ_WEB_ASYNC_BACKEND PROPERTY STRINGS ASYNCIFY JSPI)
+
+if(KRKRZ_WEB_ASYNC_BACKEND STREQUAL "JSPI")
+    set(_krkrz_web_async_link_options -sJSPI)
+    message(STATUS "krkrz_web: async backend = JSPI (Chrome/Edge 137+ only)")
+elseif(KRKRZ_WEB_ASYNC_BACKEND STREQUAL "ASYNCIFY")
+    # 深い TJS 再帰 + モーダルのネスト待機に備え Asyncify の unwind バッファを拡大
+    # (既定 4KB では溢れる: RuntimeError unreachable / stack overflow)。不足なら増やす。
+    set(_krkrz_web_async_link_options -sASYNCIFY -sASYNCIFY_STACK_SIZE=1048576)
+    message(STATUS "krkrz_web: async backend = Asyncify (all browsers)")
+else()
+    message(FATAL_ERROR
+        "KRKRZ_WEB_ASYNC_BACKEND must be ASYNCIFY or JSPI (got: ${KRKRZ_WEB_ASYNC_BACKEND})")
+endif()
+
+# ----------------------------------------------------
 # 実行ファイル (core 側 target 名 = krkrz) へのリンクオプション
 # ----------------------------------------------------
 
@@ -267,12 +301,9 @@ target_link_options(krkrz PRIVATE
     # OGLDrawDevice の glMapBufferRange 等 (WebGL2 に無い GLES3 API) の
     # エミュレーションを有効化
     -sFULL_ES3
-    # JSPI (JavaScript Promise Integration): Elements モーダルダイアログの
-    # 同期待機ループ (PumpModalLoop) が、メインスレッドをブロックせず JSPI で
-    # 次フレームまで suspend できるようにする。wasm メインループは
-    # SDL_MAIN_USE_CALLBACKS ではなく promising な自前 main() を使う
-    # (sdl3/environ/main.cpp の __EMSCRIPTEN__ ブロック)。Chrome 137+ / 対応ブラウザ必須
-    -sJSPI
+    # 非同期 suspend バックエンド (Asyncify 既定 / JSPI)。
+    # 上の KRKRZ_WEB_ASYNC_BACKEND オプションで切替 (-DKRKRZ_WEB_ASYNC_BACKEND=JSPI)
+    ${_krkrz_web_async_link_options}
     # セーブデータ永続化 (IDBFS)
     -lidbfs.js
     # devtools コンソール REPL (pre.js の tjs() → ccall → krkrz_repl_eval)。
