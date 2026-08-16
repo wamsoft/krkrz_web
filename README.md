@@ -18,7 +18,7 @@
 ## ビルドと実行
 
 ```bash
-export EMSDK=/path/to/emsdk      # 既定: D:/work/emsdk
+export EMSDK=/path/to/emsdk      # 環境変数が優先。未設定時の既定: C:/work/emsdk
 
 make prebuild    # cmake configure (vcpkg install が走る)
 make build       # ビルド

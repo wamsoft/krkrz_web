@@ -16,7 +16,7 @@ grep してもエンジン実装は見えない。
 
 ## ビルド
 
-必須環境変数: `VCPKG_ROOT`、`EMSDK` (既定 D:/work/emsdk)。
+必須環境変数: `VCPKG_ROOT`、`EMSDK` (環境変数が優先。未設定時の既定 C:/work/emsdk)。
 
 ```bash
 make prebuild   # cmake --preset wasm32-emscripten (vcpkg install)

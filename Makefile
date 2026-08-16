@@ -8,12 +8,15 @@
 #
 # 必要な環境変数:
 #   VCPKG_ROOT  vcpkg のルート
-#   EMSDK       emsdk のルート (既定: D:/work/emsdk)
+#   EMSDK       emsdk のルート。環境変数 EMSDK があればそれを使い、
+#               無ければ既定 C:/work/emsdk。`make EMSDK=<path>` でも上書き可。
 #   KRKRZ_BASE  krkrz_dev の親フォルダ (既定: このリポジトリの親)
 
 PRESET ?= wasm32-emscripten
 BUILD_TYPE ?= Release
-EMSDK ?= D:/work/emsdk
+# 環境変数 EMSDK があれば make がそれを取り込むので ?= はそちらを優先する。
+# 未設定のときだけ既定値を使う。
+EMSDK ?= C:/work/emsdk
 PORT ?= 8080
 CMAKEOPT ?=
 
@@ -40,10 +43,18 @@ web:
 	@test -n "$(PROJECT_DIR)" || (echo "PROJECT_DIR を指定してください (make PROJECT_DIR=<path> web)"; exit 2)
 	python tools/stage_web.py "$(PROJECT_DIR)" --build-type $(BUILD_TYPE)
 
-prebuild:
+# emsdk の実在チェック。パスが違うと cmake が意味の分かりにくいエラーを出すので
+# 先に落として、どこを直せばよいかを示す。
+.PHONY: check-emsdk
+check-emsdk:
+	@test -f "$(EMSDK)/emscripten_config" -o -d "$(EMSDK)/upstream/emscripten" || \
+	  (echo "emsdk が見つかりません: EMSDK=$(EMSDK)"; \
+	   echo "環境変数 EMSDK を設定するか make EMSDK=<emsdk のパス> ... で指定してください"; exit 2)
+
+prebuild: check-emsdk
 	cmake --preset $(PRESET) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKEOPT)
 
-build:
+build: check-emsdk
 	cmake --build $(BUILD_DIR)
 
 # run:
