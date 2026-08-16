@@ -87,6 +87,12 @@ LIST(APPEND TVP_PLUGINS
 include(${KRKRZ_DIR}/cmake/MergeVcpkgManifest.cmake)
 
 set(_KRKRZ_WEB_VCPKG_SUBDIRS "")
+
+# NOTE: core 配下の外部ライブラリ (glyphware) が要求する harfbuzz は vcpkg では
+# 入れない。vcpkg の harfbuzz port は meson + -Werror でビルドされ、
+# Emscripten の clang が出す -Wunused-template で失敗するため。
+# umbrella (krkrz_dev) と同じく cmake/CommonExternals.cmake の FetchContent で
+# 供給する (後述の include)。
 foreach(_plugin IN LISTS TVP_PLUGINS)
     foreach(_folder IN LISTS TVP_PLUGIN_FOLDERS)
         if(EXISTS "${_folder}/${_plugin}")
@@ -193,6 +199,21 @@ set(KRKRZ_WEB_RESOURCE_DIR "" CACHE PATH "埋め込みリソースフォルダ (
 if(NOT KRKRZ_WEB_RESOURCE_DIR STREQUAL "")
     set(KRKRZ_RESOURCE_DIR "${KRKRZ_WEB_RESOURCE_DIR}" CACHE PATH "" FORCE)
     message(STATUS "krkrz_web: embedding resource dir: ${KRKRZ_WEB_RESOURCE_DIR}")
+endif()
+
+# ----------------------------------------------------
+# 共通外部依存 (HarfBuzz / ThorVG 設定)
+#
+# umbrella (krkrz_dev) が全サブモジュールへ 1 つの HarfBuzz を配るのと同じ仕組みを
+# web 外枠でも使う。include するだけで krkrz_setup_harfbuzz() が走り、
+# `harfbuzz` ターゲットが用意される (glyphware / elements / ThorVG が
+# if(NOT TARGET harfbuzz) ガード越しに再利用する)。
+#
+# vcpkg の harfbuzz port を使わない理由: meson + -Werror でビルドされるため
+# Emscripten の clang が出す -Wunused-template で失敗する。
+# ----------------------------------------------------
+if(EXISTS "${KRKRZ_BASE}/krkrz_dev/cmake/CommonExternals.cmake")
+    include(${KRKRZ_BASE}/krkrz_dev/cmake/CommonExternals.cmake)
 endif()
 
 add_subdirectory(${KRKRZ_DIR} ${CMAKE_BINARY_DIR}/krkrz)
