@@ -62,7 +62,8 @@ CMAKEOPT='-DKRKRZ_WEB_DATA_DIR=/path/to/game/data' make prebuild build
 
 起動引数は `web/pre.js` が URL パラメータ + ビルド構成 (`webconfig.js`) から組み立て、
 `Module['arguments']` に設定する。既定は `['-drawdevice=sdl', '-drawthread=1']`。
-URL の `?webbase=` / `?webproject=1` / `?readencoding=` / `?sample=` / `?drawdevice=` を解釈し、
+URL の `?webbase=` / `?webproject=1` / `?readencoding=` / `?language=` / `?sample=` / `?drawdevice=` を解釈し
+(`?language=en` → `-language=en`。無ければブラウザの言語)、
 案件サイト (下記 PROJECT_DIR ステージング) では `KRKRZ_WEB_DEFAULT_WEBBASE` /
 `KRKRZ_WEB_DEFAULT_ARGS` を焼き込むことで**引数なし URL で案件を直接起動**する。
 

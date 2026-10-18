@@ -541,6 +541,11 @@ if (typeof window !== 'undefined') {
     if (webbase) args.push('-webbase=' + webbase);
     var readenc = params.get('readencoding');
     if (readenc && /^[A-Za-z0-9_\-]+$/.test(readenc)) args.push('-readencoding=' + readenc);
+    // ?language=<tag> : 表示言語 (-language=。エンジンのメッセージと System.uiLanguage /
+    //                  デモの I18n が従う)。指定が無ければブラウザの言語 (SDL の preferred locale)。
+    //                  ドキュメントサイトの英語ページから埋め込みデモへ言語を渡すのに使う。
+    var lang = params.get('language');
+    if (lang && /^[A-Za-z0-9\-]+$/.test(lang)) args.push('-language=' + lang);
 
     var sample = params.get('sample');
     if (sample && !/^[A-Za-z0-9_\-]+$/.test(sample)) sample = null;
