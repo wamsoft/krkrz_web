@@ -208,7 +208,7 @@ if (typeof window !== 'undefined') {
                 }
                 if (bar) bar.style.display = 'none';
                 if (spin) spin.style.display = 'none';
-                if (st) st.textContent = '準備完了';
+                if (st) st.textContent = (typeof krkrzT === 'function' ? krkrzT('ready') : '準備完了');
                 if (el) el.style.display = 'block';
                 var fire = function () {
                     window.removeEventListener('pointerdown', fire);
@@ -248,8 +248,8 @@ if (typeof window !== 'undefined') {
                     if (Module.setStatus) {
                         // total 不明 (Content-Length 無し) ならサイズのみ表示 (バー無し)
                         Module.setStatus(total > 0
-                            ? 'エンジンダウンロード中 (' + loaded + '/' + total + ')'
-                            : 'エンジンダウンロード中 ' + (loaded / 1048576).toFixed(1) + 'MB');
+                            ? (typeof krkrzT === 'function' ? krkrzT('engineDl') : 'エンジンダウンロード中') + ' (' + loaded + '/' + total + ')'
+                            : (typeof krkrzT === 'function' ? krkrzT('engineDl') : 'エンジンダウンロード中') + ' ' + (loaded / 1048576).toFixed(1) + 'MB');
                     }
                 }
                 var buf = new Uint8Array(loaded);
@@ -263,7 +263,7 @@ if (typeof window !== 'undefined') {
                 globalThis.__krkrzWasmDone = true; // ワーカー起動進捗表示の開始条件
             } catch (e) {
                 console.error('krkrz: wasm instantiate failed:', e);
-                if (Module.setStatus) Module.setStatus('エンジンの読み込みに失敗しました');
+                if (Module.setStatus) Module.setStatus((typeof krkrzT === 'function' ? krkrzT('engineErr') : 'エンジンの読み込みに失敗しました'));
             }
         })();
         return {}; // 非同期 instantiate
@@ -289,7 +289,7 @@ if (typeof window !== 'undefined') {
             if (typeof Module === 'undefined' || !Module.krkrzDlComplete) return;
             var st = document.getElementById('status');
             var bar = document.getElementById('loading-bar');
-            if (st) st.textContent = 'エンジン初期化中...';
+            if (st) st.textContent = (typeof krkrzT === 'function' ? krkrzT('engineInit') : 'エンジン初期化中...');
             if (bar) bar.style.display = 'none';
         }, 200);
     })();
@@ -329,7 +329,7 @@ if (typeof window !== 'undefined') {
             var n = globalThis.__krkrzWebFetchCount || 0;
             var b = globalThis.__krkrzWebFetchBytes || 0;
             var txt = n > 0
-                ? '取得ファイル: ' + n + ' (' + (b / 1048576).toFixed(1) + 'MB)'
+                ? (typeof krkrzT === 'function' ? krkrzT('fetched') : '取得ファイル') + ': ' + n + ' (' + (b / 1048576).toFixed(1) + 'MB)'
                 : '';
             // prefetch (バックグラウンド先読み) の進捗。総数が既知なので
             // プログレスバーも駆動する (DL フェーズ終了後 = エンジン開始後に
@@ -341,7 +341,7 @@ if (typeof window !== 'undefined') {
                 var bar = document.getElementById('loading-bar');
                 var fill = document.getElementById('loading-bar-fill');
                 if (ps.done < ps.total) {
-                    txt += (txt ? '　' : '') + '先読み: ' + ps.done + ' / ' + ps.total;
+                    txt += (txt ? '　' : '') + (typeof krkrzT === 'function' ? krkrzT('prefetch') : '先読み') + ': ' + ps.done + ' / ' + ps.total;
                     if (bar && fill) {
                         fill.style.width = (ps.done / ps.total) * 100 + '%';
                         bar.style.display = 'block';

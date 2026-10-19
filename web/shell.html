@@ -172,6 +172,38 @@
     </div>
   </div>
   <script>
+    // 外枠 (読み込み表示・エラー画面) の文言の言語。?language= を優先し、無ければ
+    // ブラウザの言語。エンジン側の言語は pre.js が ?language= を -language= へ渡す。
+    // 言語を増やすときは KRKRZ_MSG の各項目に足す (無い言語は en → ja の順に落ちる)。
+    var KRKRZ_LANG = (function () {
+      var t = (new URLSearchParams(location.search).get('language')
+               || navigator.language || 'ja').toLowerCase();
+      return t.indexOf('ja') === 0 ? 'ja' : 'en';
+    })();
+    var KRKRZ_MSG = {
+      loading:   { ja: '読み込み中...', en: 'Loading...' },
+      gate:      { ja: 'クリック / タップでスタート', en: 'Click / tap to start' },
+      error:     { ja: 'スクリプトエラーが発生しました', en: 'A script error occurred' },
+      reload:    { ja: 'リロードして再起動', en: 'Reload and restart' },
+      download:  { ja: 'ダウンロード中', en: 'Downloading' },
+      engineDl:  { ja: 'エンジンダウンロード中', en: 'Downloading engine' },
+      engineErr: { ja: 'エンジンの読み込みに失敗しました', en: 'Failed to load the engine' },
+      engineInit:{ ja: 'エンジン初期化中...', en: 'Initializing engine...' },
+      ready:     { ja: '準備完了', en: 'Ready' },
+      fetched:   { ja: '取得ファイル', en: 'Fetched files' },
+      prefetch:  { ja: '先読み', en: 'Prefetch' }
+    };
+    function krkrzT(key) {
+      var m = KRKRZ_MSG[key];
+      if (!m) return key;
+      return m[KRKRZ_LANG] || m.en || m.ja;
+    }
+    document.documentElement.lang = KRKRZ_LANG;
+    document.getElementById('status').textContent = krkrzT('loading');
+    document.getElementById('loading-gate').textContent = krkrzT('gate');
+    document.querySelector('#error h2').textContent = krkrzT('error');
+    document.getElementById('error-reload').textContent = krkrzT('reload');
+
     if (new URLSearchParams(location.search).get('fit') === '0') {
       document.body.classList.add('nofit');
     }
@@ -186,7 +218,7 @@
       canvas: document.getElementById('canvas'),
       // 起動スクリプト実行中に表示するテキスト (resource/loading.json の
       // "text" で pre.js が差し替える)
-      krkrzBootText: '読み込み中...',
+      krkrzBootText: krkrzT('loading'),
       krkrzLoadingDone: false,
       setStatus: (function () {
         var statusEl = document.getElementById('status');
@@ -206,7 +238,7 @@
               dlStats[m[1]] = { l: parseFloat(m[2]), t: parseFloat(m[3]) };
               var loaded = 0, total = 0;
               for (var k in dlStats) { loaded += dlStats[k].l; total += dlStats[k].t; }
-              statusEl.textContent = 'ダウンロード中 ' + mb(loaded) + ' / ' + mb(total);
+              statusEl.textContent = krkrzT('download') + ' ' + mb(loaded) + ' / ' + mb(total);
               fillEl.style.width = (total > 0 ? (loaded / total) * 100 : 0) + '%';
               barEl.style.display = 'block';
               // 全ストリーム完了 → 以降はワーカープール起動進捗 (pre.js) に譲る
@@ -251,7 +283,7 @@
     document.getElementById('error-reload').addEventListener('click', function () {
       window.location.reload();
     });
-    Module.setStatus('読み込み中...');
+    Module.setStatus(krkrzT('loading'));
   </script>
   <!-- 起動時構成 (配信サイドカー)。krkrz.js より先に読み込み、pre.js が参照する。
        案件サイトでは stage_web.py が案件版 webconfig.js に差し替える。 -->
