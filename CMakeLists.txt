@@ -32,7 +32,7 @@ endif()
 # (pre-project で定義: core 側の vcpkg manifest マージ判定にも使われる)
 # ----------------------------------------------------
 
-# プラグイン参照先 (krkrz_nx / krkrz_android と同じ 3 フォルダ構成)
+# プラグイン参照先 (krkrz_android と同じ 3 フォルダ構成)
 LIST(APPEND TVP_PLUGIN_FOLDERS
    ${PLUGINS_DIR}
    ${KRKRZ_BASE}/wamsoft_work
@@ -43,8 +43,8 @@ set(TPSTUB_DIR ${KRKRZ_DIR}/tp_stub)
 set(NCBIND_DIR ${PLUGINS_DIR}/ncbind)
 set(SIMPLEBIND_DIR ${PLUGINS_DIR}/simplebinder)
 
-# krkrz_nx と同じ組み込みプラグイン一式 (Android/コンソール専用の
-# virtualpad / androidconfig / license / ps5* を除く)。案件 (KAG3 ADV) が
+# 家庭用ゲーム機版と同じ組み込みプラグイン一式 (Android/コンソール専用の
+# virtualpad / androidconfig / license / ps5* を除く)。KAG3 の ADV が
 # 依存するプラグインを揃える。+ web で追加した extrans / extNagano。
 LIST(APPEND TVP_PLUGINS_STATIC
 # krkrz_dev/src/plugins
