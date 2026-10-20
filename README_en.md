@@ -1,4 +1,4 @@
-<!-- source_hash: 71bc99ccb58c -->
+<!-- source_hash: 3f62a8d5c3bd -->
 # krkrz_web — Kirikiri Z for the browser
 
 [日本語](README.md) | English
@@ -191,9 +191,14 @@ The documentation for Kirikiri Z itself is on the [documentation site](https://w
 
 ## License
 
-The license of this repository follows that of the Kirikiri Z engine.
+This repository (build scripts, the shell (HTML / JavaScript) and tools) is under the [MIT License](LICENSE).
 
-What is referenced or fetched at build time (the Kirikiri Z engine and plugins, SDL3, Emscripten, the
-dependency libraries fetched through vcpkg and so on) follows its own license. Include the license
-notices required in your distribution on the title side, according to the engine, plugins and
-libraries you use.
+The following, referenced or fetched at build time, follow their own licenses; the license of this
+repository does not extend to them.
+
+- The Kirikiri Z engine and plugins (each submodule under krkrz_dev)
+- SDL3 (zlib License) and the dependency libraries fetched through vcpkg
+- Emscripten
+
+Include the license notices required in your distribution on the title side, according to the engine,
+plugins and libraries you use.
